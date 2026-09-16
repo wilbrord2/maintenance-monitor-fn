@@ -1,0 +1,182 @@
+@import 'tailwindcss';
+
+/*
+ * Maintenance Monitor design tokens.
+ * Industrial, data-first palette: ink and steel for structure, reserved status tones for machine
+ * state, square geometry and hairline borders instead of heavy shadows.
+ * Every text/background pairing below meets WCAG AA (4.5:1) for body text.
+ */
+@theme {
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Surfaces */
+  --color-paper: #f3f2ed;
+  --color-panel: #ffffff;
+  --color-sunken: #faf9f5;
+  --color-hover: #f5f4ef;
+  --color-line: #dddace;
+  --color-line-soft: #ecebe4;
+  --color-line-strong: #bfbbad;
+
+  /* Ink */
+  --color-ink: #1b2430;
+  --color-ink-secondary: #3d4652;
+  --color-muted: #66645c;
+
+  /* Brand */
+  --color-steel: #33546b;
+  --color-steel-dark: #233b4c;
+  --color-steel-soft: #e8eef2;
+  --color-amber: #e2a33d;
+
+  /* Actions and focus */
+  --color-primary: #1b2430;
+  --color-primary-hover: #2c3a4b;
+  --color-primary-ink: #ffffff;
+  --color-danger: #963628;
+  --color-danger-hover: #7e2c20;
+  --color-focus: #2f6fa3;
+
+  /* Sidebar */
+  --color-sidebar: #1b2430;
+  --color-sidebar-hover: #243040;
+  --color-sidebar-active: #2e3c4d;
+  --color-sidebar-ink: #c7cdd4;
+  --color-sidebar-muted: #8c96a3;
+  --color-sidebar-line: #2a3542;
+
+  /* Status tones: mark colour, AA ink, soft fill, hairline */
+  --color-positive: #3f8a55;
+  --color-positive-ink: #2f6b3d;
+  --color-positive-soft: #e7efe9;
+  --color-positive-line: #bcd4c2;
+
+  --color-warning: #e0a030;
+  --color-warning-ink: #85570f;
+  --color-warning-soft: #fbf0dc;
+  --color-warning-line: #ebcf9a;
+
+  --color-critical: #b8412f;
+  --color-critical-ink: #963628;
+  --color-critical-soft: #f7e7e4;
+  --color-critical-line: #e3b9b1;
+
+  --color-info: #2f6fa3;
+  --color-info-ink: #2b4a60;
+  --color-info-soft: #e8eef2;
+  --color-info-line: #bfd0dc;
+
+  --color-neutral: #8a877d;
+  --color-neutral-ink: #4a4a44;
+  --color-neutral-soft: #efeee9;
+  --color-neutral-line: #d6d3c8;
+
+  /* Charts (mirrored in src/constants/chart-colors.ts) */
+  --color-series-primary: #6b4fbb;
+  --color-series-muted: #b3b0a5;
+
+  /* Geometry */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+
+  --shadow-xs: 0 1px 0 rgb(27 36 48 / 0.04);
+  --shadow-overlay: 0 18px 40px -12px rgb(27 36 48 / 0.32), 0 2px 6px rgb(27 36 48 / 0.08);
+
+  /* Motion */
+  --animate-row-flash: row-flash 2.4s ease-out;
+  --animate-live-pulse: live-pulse 2.2s ease-out infinite;
+  --animate-pop-in: pop-in 140ms cubic-bezier(0.2, 0, 0, 1);
+  --animate-pop-out: pop-out 100ms ease-in forwards;
+
+  @keyframes row-flash {
+    0%,
+    35% {
+      background-color: var(--color-warning-soft);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+
+  @keyframes live-pulse {
+    0% {
+      box-shadow: 0 0 0 0 rgb(63 138 85 / 0.5);
+    }
+    70%,
+    100% {
+      box-shadow: 0 0 0 6px rgb(63 138 85 / 0);
+    }
+  }
+
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(-3px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes pop-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-2px);
+    }
+  }
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-line);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-steel-soft);
+  }
+
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
