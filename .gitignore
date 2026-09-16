@@ -26,3 +26,5 @@ next-env.d.ts
 *.pem
 *.tsbuildinfo
 npm-debug.log*
+
+appSetup.md 
