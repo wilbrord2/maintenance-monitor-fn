@@ -15,7 +15,7 @@ export function DetailList({ items, columns = 2, className }: { items: readonly 
       {items.map((item) => (
         <div key={item.label} className={cn('min-w-0', item.wide && columns === 2 && 'sm:col-span-2')}>
           <dt className="text-xs font-medium text-muted">{item.label}</dt>
-          <dd className="mt-1 text-[13px] break-words whitespace-pre-line text-ink">{item.value}</dd>
+          <dd className="mt-1 text-[13px] wrap-break-word whitespace-pre-line text-ink">{item.value}</dd>
         </div>
       ))}
     </dl>
