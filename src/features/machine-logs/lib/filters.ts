@@ -12,15 +12,22 @@ import {
 import { MACHINE_STATES, type MachineState } from '@/types/machine';
 import {
   type ListMachineLogsParams,
+  LOG_SCOPES,
   LOG_STATUSES,
+  LogScope,
   type LogStatus,
   MACHINE_LOG_SORT_FIELDS,
   type MachineLogSortField,
 } from '@/types/machine-log';
+import { OPERATIONAL_IMPACTS, type OperationalImpact } from '@/types/machine-part';
 
 export interface LogFilters extends SortState<MachineLogSortField> {
   search: string;
   machineId: number | undefined;
+  /** Only meaningful with a machine selected; implies part events. */
+  machinePartId: number | undefined;
+  scope: LogScope | undefined;
+  operationalImpact: OperationalImpact | undefined;
   userId: number | undefined;
   /** Technicians: only logs they recorded. */
   mine: boolean;
@@ -46,14 +53,34 @@ export const LOG_SORT_OPTIONS = [
 ] as const;
 
 /** URL parameters owned by the logs view (cleared by "Clear filters"). */
-export const LOG_FILTER_PARAMS = ['search', 'machineId', 'userId', 'mine', 'entryStatus', 'resultingState', 'logStatus', 'from', 'to', 'page'] as const;
+export const LOG_FILTER_PARAMS = [
+  'search',
+  'machineId',
+  'partId',
+  'scope',
+  'impact',
+  'userId',
+  'mine',
+  'entryStatus',
+  'resultingState',
+  'logStatus',
+  'from',
+  'to',
+  'page',
+] as const;
 
 export function parseLogFilters(params: Pick<URLSearchParams, 'get'>): LogFilters {
   const from = parseDateParam(params.get('from'));
   const to = parseDateParam(params.get('to'));
+  const machineId = parseIdParam(params.get('machineId'));
+  const machinePartId = machineId !== undefined ? parseIdParam(params.get('partId')) : undefined;
   return {
     search: parseSearchParam(params.get('search')),
-    machineId: parseIdParam(params.get('machineId')),
+    machineId,
+    machinePartId,
+    // A chosen part only has part events.
+    scope: machinePartId !== undefined ? LogScope.PART : parseEnumParam(params.get('scope'), LOG_SCOPES),
+    operationalImpact: parseEnumParam(params.get('impact'), OPERATIONAL_IMPACTS),
     userId: parseIdParam(params.get('userId')),
     mine: params.get('mine') === '1',
     entryStatus: parseEnumParam(params.get('entryStatus'), MACHINE_STATES),
@@ -76,6 +103,9 @@ export function toListMachineLogsParams(filters: LogFilters, currentUserId: numb
     sortOrder: filters.sortOrder,
     search: filters.search || undefined,
     machineId: filters.machineId,
+    machinePartId: filters.machinePartId,
+    scope: filters.scope,
+    operationalImpact: filters.operationalImpact,
     userId: filters.mine ? currentUserId : filters.userId,
     entryStatus: filters.entryStatus,
     resultingState: filters.resultingState,
@@ -85,10 +115,12 @@ export function toListMachineLogsParams(filters: LogFilters, currentUserId: numb
   };
 }
 
-/** Filters inside the collapsible panel (search and log status stay visible). */
+/** Filters inside the collapsible panel (search, scope and log status stay visible). */
 export function countAdvancedLogFilters(filters: LogFilters): number {
   return [
     filters.machineId,
+    filters.machinePartId,
+    filters.operationalImpact,
     filters.userId ?? (filters.mine || undefined),
     filters.entryStatus,
     filters.resultingState,
@@ -98,5 +130,5 @@ export function countAdvancedLogFilters(filters: LogFilters): number {
 }
 
 export function hasLogFilters(filters: LogFilters): boolean {
-  return Boolean(filters.search || filters.logStatus) || countAdvancedLogFilters(filters) > 0;
+  return Boolean(filters.search || filters.logStatus || filters.scope) || countAdvancedLogFilters(filters) > 0;
 }

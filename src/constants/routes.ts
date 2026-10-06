@@ -7,10 +7,13 @@ export const ROUTES = {
   dashboard: '/dashboard',
   machines: '/dashboard/machines',
   machine: (id: number) => `/dashboard/machines/${id}`,
+  machinePart: (machineId: number, partId: number) => `/dashboard/machines/${machineId}/parts/${partId}`,
   logs: '/dashboard/logs',
   createLog: '/dashboard/logs/create',
   log: (id: number) => `/dashboard/logs/${id}`,
   editLog: (id: number) => `/dashboard/logs/${id}/edit`,
+  maintenance: '/dashboard/maintenance',
+  maintenanceEvent: (id: number) => `/dashboard/maintenance/events/${id}`,
   analytics: '/dashboard/analytics',
   technicians: '/dashboard/technicians',
   technician: (id: number) => `/dashboard/technicians/${id}`,
@@ -41,7 +44,15 @@ export function buildLoginUrl(options: { next?: string | null; reason?: LoginRea
   return query ? `${ROUTES.login}?${query}` : ROUTES.login;
 }
 
-/** Builds a log-creation link, optionally preselecting a machine. */
-export function buildCreateLogUrl(machineId?: number): string {
-  return machineId ? `${ROUTES.createLog}?machineId=${machineId}` : ROUTES.createLog;
+/** Links to a machine's parts section. */
+export function buildMachinePartsUrl(machineId: number): string {
+  return `${ROUTES.machine(machineId)}#parts`;
+}
+
+/** Builds a log-creation link, optionally preselecting a machine and one of its parts. */
+export function buildCreateLogUrl(machineId?: number, partId?: number): string {
+  if (!machineId) return ROUTES.createLog;
+  const params = new URLSearchParams({ machineId: String(machineId) });
+  if (partId) params.set('partId', String(partId));
+  return `${ROUTES.createLog}?${params.toString()}`;
 }

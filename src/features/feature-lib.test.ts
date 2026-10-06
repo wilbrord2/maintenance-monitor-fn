@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeLog } from '@/test/factories';
-import { MachineState } from '@/types/machine';
+import { MachineOperationalStatus, MachineState } from '@/types/machine';
 import { LogStatus } from '@/types/machine-log';
 import { parseTimeframe, validateCustomRange } from './analytics/lib/timeframe';
 import { computeAuditChanges, formatAuditValue, humanizeField } from './audit/lib/changes';
@@ -31,16 +31,25 @@ describe('analytics timeframe', () => {
 
 describe('list filters from the URL', () => {
   it('parses machine filters and ignores tampered values', () => {
-    const filters = parseMachineFilters(params('status=DOWNTIME&search=%20press%20&sort=updatedAt:desc&page=2&limit=999&active=maybe'));
+    const filters = parseMachineFilters(
+      params('status=NOT_OPERATING&workflow=DOWNTIME&search=%20press%20&sort=updatedAt:desc&page=2&limit=999&active=maybe'),
+    );
     expect(toListMachinesParams(filters)).toEqual({
       page: 2,
       limit: 20,
       sortBy: 'updatedAt',
       sortOrder: 'desc',
       search: 'press',
+      operationalStatus: MachineOperationalStatus.NOT_OPERATING,
       status: MachineState.DOWNTIME,
       isActive: undefined,
     });
+  });
+
+  it('ignores a machine status that is not an operational status', () => {
+    const filters = parseMachineFilters(params('status=DOWNTIME&workflow=OPERATING'));
+    expect(filters.operationalStatus).toBeUndefined();
+    expect(filters.status).toBeUndefined();
   });
 
   it('maps "only my logs" to the signed-in user and ignores an inverted date range', () => {

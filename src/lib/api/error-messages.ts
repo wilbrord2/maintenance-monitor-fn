@@ -32,8 +32,22 @@ const CODE_MESSAGES: Readonly<Record<string, string>> = {
   [ErrorCode.STALE_VERSION]:
     'This log was changed by someone else since you opened it. Reload it to see the latest version.',
   [ErrorCode.RESULTING_STATE_IMMUTABLE]:
-    "The resulting state can only be changed on the machine's most recent log.",
-  [ErrorCode.INVALID_STATE_TRANSITION]: "This state change isn't allowed from the machine's current state.",
+    'The resulting state can only be changed on the most recent log of this machine or part.',
+  [ErrorCode.INVALID_STATE_TRANSITION]: "This state change isn't allowed from the current state.",
+  [ErrorCode.MACHINE_PART_NOT_FOUND]: 'This part could not be found. It may have been removed.',
+  [ErrorCode.MACHINE_PART_CODE_EXISTS]: 'This machine already has a part with that code.',
+  [ErrorCode.MACHINE_PART_INACTIVE]: 'This part is out of use and cannot accept new logs.',
+  [ErrorCode.MACHINE_PART_STATE_CONFLICT]:
+    'This part was updated by another user. Refresh the part and try again.',
+  [ErrorCode.MACHINE_PART_HAS_OPEN_LOGS]:
+    'This part still has an open record. Close it before removing the part.',
+  [ErrorCode.MAINTENANCE_SCHEDULE_NOT_FOUND]: 'This machine has no preventive maintenance schedule.',
+  [ErrorCode.MAINTENANCE_SCHEDULE_EXISTS]: 'This machine already has a maintenance schedule.',
+  [ErrorCode.MAINTENANCE_EVENT_NOT_FOUND]: 'This maintenance could not be found. It may have been removed.',
+  [ErrorCode.MAINTENANCE_EVENT_STATE_CONFLICT]:
+    'This maintenance is no longer in a state that allows this action. Refresh and try again.',
+  [ErrorCode.MAINTENANCE_EVENT_ALREADY_OPEN]:
+    'This machine already has a maintenance in progress. Complete or cancel it first.',
   [ErrorCode.RATE_LIMITED]: 'Too many requests. Please wait a moment and try again.',
   [ErrorCode.SERVICE_UNAVAILABLE]: 'The service is temporarily unavailable. Please try again shortly.',
   [ErrorCode.PAYLOAD_TOO_LARGE]: 'The submitted content is too large.',

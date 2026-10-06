@@ -37,11 +37,27 @@ describe('role-aware navigation', () => {
   const labels = (role: Role) => getNavigationForRole(role).flatMap((section) => section.items.map((item) => item.label));
 
   it('shows the full navigation to administrators', () => {
-    expect(labels(Role.ADMIN)).toEqual(['Dashboard', 'Machines', 'Machine Logs', 'Analytics', 'Technicians', 'Audit Logs', 'Profile']);
+    expect(labels(Role.ADMIN)).toEqual([
+      'Dashboard',
+      'Machines',
+      'Machine Logs',
+      'Maintenance',
+      'Analytics',
+      'Technicians',
+      'Audit Logs',
+      'Profile',
+    ]);
   });
 
   it('hides administration from technicians and drops the empty section', () => {
-    expect(labels(Role.TECHNICIAN)).toEqual(['Dashboard', 'Machines', 'Machine Logs', 'Analytics', 'Profile']);
+    expect(labels(Role.TECHNICIAN)).toEqual([
+      'Dashboard',
+      'Machines',
+      'Machine Logs',
+      'Maintenance',
+      'Analytics',
+      'Profile',
+    ]);
     expect(getNavigationForRole(Role.TECHNICIAN).map((section) => section.id)).toEqual(['operations', 'account']);
   });
 

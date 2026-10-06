@@ -3,7 +3,7 @@ import { adminToken, createActivatedTechnician, createLog, createMachine, e2eEnv
 import { signInAndWaitForDashboard } from './support/ui';
 
 test.describe('machines and maintenance logs', () => {
-  test('an administrator adds a machine, which starts as Active', async ({ page }) => {
+  test('an administrator adds a machine, which starts operating', async ({ page }) => {
     const token = await adminToken();
     const existing = await createMachine(token);
     await signInAndWaitForDashboard(page, e2eEnv.adminEmail, e2eEnv.adminPassword);
@@ -22,7 +22,10 @@ test.describe('machines and maintenance logs', () => {
     await dialog.getByRole('button', { name: 'Add machine' }).click();
 
     await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
-    await expect(page.getByText('Current state').locator('..').getByText('Active', { exact: true })).toBeVisible();
+    // The machine status shown is the one the API resolved, not one worked out in the browser.
+    const status = page.getByText('Machine status').locator('..');
+    await expect(status.getByText('Operating', { exact: true })).toBeVisible();
+    await expect(page.getByText('No parts configured').first()).toBeVisible();
   });
 
   test('recording maintenance changes the machine status through a log', async ({ page }) => {
@@ -32,10 +35,10 @@ test.describe('machines and maintenance logs', () => {
     await page.goto(`/dashboard/machines/${machine.id}`);
     await page.getByRole('link', { name: 'Record activity' }).first().click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/logs/create\\?machineId=${machine.id}$`));
-    await expect(page.getByText('Current machine state')).toBeVisible();
+    await expect(page.getByText('Current state')).toBeVisible();
 
     await page.getByLabel('Fault description').fill('Cooling fan making grinding noise');
-    const resulting = page.getByLabel('Resulting state');
+    const resulting = page.getByLabel('New state');
     await expect(resulting).toBeEnabled();
     await resulting.selectOption('UNDER_MAINTENANCE');
     await expect(page.getByLabel('Log status').locator('option[value="CLOSED"]')).toBeDisabled();
@@ -43,7 +46,8 @@ test.describe('machines and maintenance logs', () => {
 
     await expect(page).toHaveURL(/\/dashboard\/logs\/\d+$/);
     await expect(page.getByRole('heading', { name: 'State transition' })).toBeVisible();
-    expect((await getMachine(await adminToken(), machine.id)).status).toBe('UNDER_MAINTENANCE');
+    // A machine without parts: the effective status follows the system status.
+    expect(await getMachine(await adminToken(), machine.id)).toMatchObject({ status: 'UNDER_MAINTENANCE', systemStatus: 'UNDER_MAINTENANCE' });
   });
 
   test('status changes made by another technician appear live on the board', async ({ page }) => {
@@ -65,9 +69,10 @@ test.describe('machines and maintenance logs', () => {
     });
 
     const row = main.locator('tr', { hasText: machine.name });
-    await expect(row.getByText('Downtime', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: /Status changes, 1 new/ }).click();
-    await expect(page.getByRole('dialog').getByText(`By ${technician.fullName}`)).toBeVisible();
+    // A machine taken down through a log is reported by the API as not operating.
+    await expect(row.getByText('Not operating', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: /Live updates, \d+ new/ }).click();
+    await expect(page.getByRole('dialog').getByText(`By ${technician.fullName}`).first()).toBeVisible();
   });
 
   test('deleting a log is administrator-only and always confirmed', async ({ page, browser }) => {

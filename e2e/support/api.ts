@@ -50,7 +50,12 @@ export interface TestMachine {
   id: number;
   name: string;
   serialNumber: string;
+  /** Effective status: the most severe of the system status and the active parts' statuses. */
   status: string;
+  /** The machine's own state, set by whole-machine logs. */
+  systemStatus: string;
+  /** Whether the machine can run; derived by the API. */
+  operationalStatus: string;
 }
 
 export async function createMachine(token: string, name = `E2E Machine ${uniqueSuffix()}`): Promise<TestMachine> {
@@ -70,9 +75,65 @@ export async function getMachine(token: string, id: number): Promise<TestMachine
 
 export async function createLog(
   token: string,
-  body: { machineId: number; entryStatus: string; resultingState: string; faultDescription: string; logStatus?: string; endedAt?: string; startedAt?: string },
+  body: {
+    machineId: number;
+    /** Omit for a whole-machine log. */
+    machinePartId?: number;
+    /** Optional: the API fills in the subject's current state. */
+    entryStatus?: string;
+    resultingState: string;
+    faultDescription: string;
+    /** Part logs only. */
+    operationalImpact?: string;
+    logStatus?: string;
+    endedAt?: string;
+    startedAt?: string;
+  },
 ): Promise<{ id: number }> {
   return call<{ id: number }>('post', '/machine-logs', { token, data: { logStatus: 'OPEN', ...body } });
+}
+
+export interface TestPart {
+  id: number;
+  machineId: number;
+  name: string;
+  partCode: string;
+  status: string;
+  operationalImpact: string;
+  isCritical: boolean;
+}
+
+export async function createPart(
+  token: string,
+  machineId: number,
+  body: { name?: string; isCritical?: boolean; status?: string; operationalImpact?: string } = {},
+): Promise<TestPart> {
+  const suffix = uniqueSuffix();
+  return call<TestPart>('post', `/machines/${machineId}/parts`, {
+    token,
+    data: { name: body.name ?? `Part ${suffix}`, partCode: `P-${suffix}`, isCritical: body.isCritical ?? false, ...body },
+  });
+}
+
+export interface TestSchedule {
+  id: number;
+  machineId: number;
+  intervalDays: number;
+  nextMaintenanceAt: string;
+  lastMaintenanceAt: string | null;
+  state: string;
+}
+
+export async function createSchedule(
+  token: string,
+  machineId: number,
+  body: { intervalDays: number; reminderDaysBefore?: number; nextMaintenanceAt?: string; lastMaintenanceAt?: string },
+): Promise<TestSchedule> {
+  return call<TestSchedule>('post', `/machines/${machineId}/maintenance`, { token, data: body });
+}
+
+export async function getSchedule(token: string, machineId: number): Promise<TestSchedule> {
+  return call<TestSchedule>('get', `/machines/${machineId}/maintenance`, { token });
 }
 
 /** Reads the temporary password from the SMTP sink's copy of the onboarding email. */

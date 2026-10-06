@@ -16,6 +16,7 @@ const ROUTE_RULES: readonly RouteRule[] = [
   { pattern: ROUTES.logs, permission: Permission.VIEW_LOGS },
   { pattern: ROUTES.createLog, permission: Permission.CREATE_LOGS, exact: true },
   { pattern: `${ROUTES.logs}/:id/edit`, permission: Permission.UPDATE_LOGS, exact: true },
+  { pattern: ROUTES.maintenance, permission: Permission.VIEW_MAINTENANCE },
   { pattern: ROUTES.analytics, permission: Permission.VIEW_ANALYTICS },
   { pattern: ROUTES.technicians, permission: Permission.VIEW_USERS },
   { pattern: ROUTES.auditLogs, permission: Permission.VIEW_AUDIT_LOGS },

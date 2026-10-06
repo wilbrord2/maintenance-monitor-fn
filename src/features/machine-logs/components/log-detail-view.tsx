@@ -9,19 +9,24 @@ import { ErrorState } from '@/components/feedback/error-state';
 import { NotFoundState } from '@/components/feedback/not-found-state';
 import { PageHeader } from '@/components/layout/page-header';
 import { LogStatusBadge } from '@/components/status/log-status-badge';
+import { LogSubjectBadge } from '@/components/status/log-subject';
 import { MachineStateBadge } from '@/components/status/machine-state-badge';
+import { OperationalStatusBadge } from '@/components/status/operational-status-badge';
+import { OperationalImpactBadge } from '@/components/status/part-status-badge';
+import { StateTransition } from '@/components/status/state-transition';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { LoadingRegion, Skeleton } from '@/components/ui/skeleton';
 import { ROUTES } from '@/constants/routes';
-import { useMachine, useMachineHistoryPage } from '@/features/machines/api/queries';
+import { useMachinePartHistory } from '@/features/machine-parts/api/queries';
+import { useMachineHistoryPage } from '@/features/machines/api/queries';
 import { isApiError } from '@/lib/api/errors';
 import { Permission } from '@/lib/permissions/permissions';
 import { usePermissions } from '@/lib/permissions/use-permissions';
 import { cn } from '@/lib/utils/cn';
 import { formatDateTime, formatRelativeTime, hoursBetween } from '@/lib/utils/date';
 import { formatHours } from '@/lib/utils/format';
-import { type MachineLog } from '@/types/machine-log';
+import { LogScope, type MachineLog } from '@/types/machine-log';
 import { useMachineLog } from '../api/queries';
 import { buildStateJourney } from '../lib/journey';
 import { DeleteLogDialog } from './delete-log-dialog';
@@ -30,12 +35,21 @@ const JOURNEY_PAGE_SIZE = 20;
 
 const empty = (text: string) => <span className="text-muted">{text}</span>;
 
+const JOURNEY_PARAMS = { page: 1, limit: JOURNEY_PAGE_SIZE, sortBy: 'createdAt', sortOrder: 'desc' } as const;
+
+/** The subject's own path: the part's history for a part log, whole-machine logs otherwise. */
 function StateJourneyCard({ log }: { log: MachineLog }) {
-  const history = useMachineHistoryPage(log.machine.id, { page: 1, limit: JOURNEY_PAGE_SIZE, sortBy: 'createdAt', sortOrder: 'desc' });
+  const part = log.scope === LogScope.PART ? log.machinePart : null;
+  const partHistory = useMachinePartHistory(part?.id ?? 0, JOURNEY_PARAMS);
+  const machineHistory = useMachineHistoryPage(part ? 0 : log.machine.id, { ...JOURNEY_PARAMS, scope: LogScope.MACHINE });
+  const history = part ? partHistory : machineHistory;
 
   return (
     <Card>
-      <CardHeader title="State journey" description="How the machine's status moved from this log onward" />
+      <CardHeader
+        title="State journey"
+        description={part ? `How ${part.name}'s state moved from this log onward` : "How the machine's system state moved from this log onward"}
+      />
       <CardContent>
         {history.isPending ? (
           <LoadingRegion label="Loading state journey" className="space-y-3">
@@ -72,8 +86,11 @@ function StateJourneyCard({ log }: { log: MachineLog }) {
                 </ol>
                 {history.isError ? <p className="mt-3 text-xs text-muted">Later events couldn&apos;t be loaded.</p> : null}
                 {journey.hasMore ? (
-                  <Link href={ROUTES.machine(log.machine.id)} className="mt-3 inline-block text-xs font-medium text-info-ink hover:underline">
-                    See full machine history
+                  <Link
+                    href={part ? ROUTES.machinePart(log.machine.id, part.id) : ROUTES.machine(log.machine.id)}
+                    className="mt-3 inline-block text-xs font-medium text-info-ink hover:underline"
+                  >
+                    {part ? 'See full part history' : 'See full machine history'}
                   </Link>
                 ) : null}
               </>
@@ -88,7 +105,6 @@ function StateJourneyCard({ log }: { log: MachineLog }) {
 export function LogDetailView({ logId }: { logId: number }) {
   const router = useRouter();
   const logQuery = useMachineLog(logId);
-  const machineQuery = useMachine(logQuery.data?.machine.id ?? 0);
   const { can } = usePermissions();
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -124,7 +140,12 @@ export function LogDetailView({ logId }: { logId: number }) {
       <PageHeader
         breadcrumbs={[{ label: 'Machine Logs', href: ROUTES.logs }, { label: `Log #${log.id}` }]}
         title={log.machine.name}
-        meta={<LogStatusBadge status={log.logStatus} />}
+        meta={
+          <>
+            <LogSubjectBadge log={log} size="md" />
+            <LogStatusBadge status={log.logStatus} />
+          </>
+        }
         description={`Log #${log.id} · recorded by ${log.technician.fullName} on ${formatDateTime(log.createdAt)}`}
         actions={
           <>
@@ -185,24 +206,42 @@ export function LogDetailView({ logId }: { logId: number }) {
 
         <div className="flex min-w-0 flex-col gap-4">
           <Card>
-            <CardHeader title="State transition" />
+            <CardHeader
+              title="State transition"
+              description={log.machinePart ? `State of ${log.machinePart.name}` : "The machine's system state"}
+            />
             <CardContent>
               <div className="flex flex-col items-start">
-                <p className="text-xs text-muted">Entry state</p>
+                <p className="text-xs text-muted">State before</p>
                 <div className="mt-1">
                   <MachineStateBadge state={log.entryStatus} />
                 </div>
                 <ArrowDown className="my-2 ml-3 size-4 text-muted" aria-label="changed to" />
-                <p className="text-xs text-muted">Resulting state</p>
+                <p className="text-xs text-muted">New state</p>
                 <div className="mt-1">
                   <MachineStateBadge state={log.resultingState} />
                 </div>
+                {log.operationalImpact ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
+                    Operational impact <OperationalImpactBadge impact={log.operationalImpact} size="sm" />
+                  </div>
+                ) : null}
               </div>
-              {machineQuery.data ? (
-                <p className="mt-4 flex flex-wrap items-center gap-2 border-t border-line-soft pt-3 text-xs text-muted">
-                  Machine is currently <MachineStateBadge state={machineQuery.data.status} size="sm" />
-                </p>
-              ) : null}
+              <dl className="mt-4 flex flex-col gap-2 border-t border-line-soft pt-3 text-xs text-muted">
+                <div className="flex flex-wrap items-center gap-2">
+                  <dt>Machine status at this event</dt>
+                  <dd>
+                    <StateTransition from={log.machineStatusBefore} to={log.machineStatusAfter} />
+                  </dd>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <dt>Machine is currently</dt>
+                  <dd className="flex flex-wrap items-center gap-1.5">
+                    <MachineStateBadge state={log.machine.status} size="sm" />
+                    <OperationalStatusBadge status={log.machine.operationalStatus} size="sm" />
+                  </dd>
+                </div>
+              </dl>
             </CardContent>
           </Card>
 
@@ -220,6 +259,16 @@ export function LogDetailView({ logId }: { logId: number }) {
                       <Link href={ROUTES.machine(log.machine.id)} className="hover:underline">
                         {log.machine.name} <span className="font-mono text-xs text-muted">{log.machine.serialNumber}</span>
                       </Link>
+                    ),
+                  },
+                  {
+                    label: 'Logged against',
+                    value: log.machinePart ? (
+                      <Link href={ROUTES.machinePart(log.machine.id, log.machinePart.id)} className="hover:underline">
+                        <LogSubjectBadge log={log} />
+                      </Link>
+                    ) : (
+                      <LogSubjectBadge log={log} />
                     ),
                   },
                   {

@@ -17,7 +17,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Select } from '@/components/ui/select';
 import { TableSkeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '@/components/ui/table';
-import { AUDIT_ACTION_CONFIG, AUDIT_ACTION_OPTIONS, AUDIT_ENTITY_LABELS, AUDIT_ENTITY_OPTIONS, getAuditEntityHref } from '@/constants/audit';
+import { AUDIT_ACTION_OPTIONS, AUDIT_ENTITY_OPTIONS, getAuditActionConfig, getAuditEntityHref, getAuditEntityLabel } from '@/constants/audit';
 import { MAX_PAGE_SIZE } from '@/constants/pagination';
 import { useUsers } from '@/features/technicians/api/queries';
 import { useUrlState } from '@/hooks/use-url-state';
@@ -32,7 +32,7 @@ function EntityCell({ entry }: { entry: AuditLog }) {
   const href = getAuditEntityHref(entry.entity, entry.entityId);
   return (
     <span className="whitespace-nowrap">
-      {AUDIT_ENTITY_LABELS[entry.entity]}
+      {getAuditEntityLabel(entry.entity)}
       {entry.entityId ? (
         href ? (
           <Link href={href} className="ml-1 font-mono text-xs text-info-ink hover:underline">
@@ -112,8 +112,8 @@ export function AuditLogsView() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Badge size="sm" tone={AUDIT_ACTION_CONFIG[entry.action].tone}>
-                      {AUDIT_ACTION_CONFIG[entry.action].label}
+                    <Badge size="sm" tone={getAuditActionConfig(entry.action).tone}>
+                      {getAuditActionConfig(entry.action).label}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -135,8 +135,8 @@ export function AuditLogsView() {
             <li key={entry.id}>
               <button type="button" onClick={() => setSelected(entry)} className="block w-full px-4 py-3 text-left hover:bg-hover">
                 <div className="flex items-center justify-between gap-3">
-                  <Badge size="sm" tone={AUDIT_ACTION_CONFIG[entry.action].tone}>
-                    {AUDIT_ACTION_CONFIG[entry.action].label}
+                  <Badge size="sm" tone={getAuditActionConfig(entry.action).tone}>
+                    {getAuditActionConfig(entry.action).label}
                   </Badge>
                   <time className="text-[11px] text-muted" dateTime={toIsoString(entry.createdAt)}>
                     {formatDateTime(entry.createdAt)}
@@ -144,7 +144,7 @@ export function AuditLogsView() {
                 </div>
                 <p className="mt-1.5 truncate text-[13px] text-ink">{entry.user?.fullName ?? 'Unknown user'}</p>
                 <p className="text-xs text-muted">
-                  {AUDIT_ENTITY_LABELS[entry.entity]}
+                  {getAuditEntityLabel(entry.entity)}
                   {entry.entityId ? ` #${entry.entityId}` : ''}
                   {entry.ipAddress ? ` · ${entry.ipAddress}` : ''}
                 </p>

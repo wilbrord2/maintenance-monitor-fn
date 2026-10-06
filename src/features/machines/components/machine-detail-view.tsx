@@ -1,6 +1,6 @@
 'use client';
 
-import { ClipboardPlus, Ellipsis, Pencil, Power, PowerOff, Trash2 } from 'lucide-react';
+import { ClipboardPlus, Ellipsis, Info, Pencil, Power, PowerOff, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -10,6 +10,8 @@ import { NotFoundState } from '@/components/feedback/not-found-state';
 import { PageHeader } from '@/components/layout/page-header';
 import { LiveIndicator } from '@/components/status/live-indicator';
 import { MachineStateBadge } from '@/components/status/machine-state-badge';
+import { MaintenanceStateBadge } from '@/components/status/maintenance-badges';
+import { OperationalStatusBadge } from '@/components/status/operational-status-badge';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -22,7 +24,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { LoadingRegion, Skeleton } from '@/components/ui/skeleton';
-import { MACHINE_STATE_CONFIG } from '@/constants/machine-state';
+import { Tooltip } from '@/components/ui/tooltip';
+import { MACHINE_OPERATIONAL_STATUS_CONFIG } from '@/constants/machine-operational-status';
+import { describeDaysUntilDue } from '@/constants/maintenance';
 import { buildCreateLogUrl, ROUTES } from '@/constants/routes';
 import { TONE_CLASSES } from '@/constants/tones';
 import { isApiError } from '@/lib/api/errors';
@@ -31,18 +35,50 @@ import { usePermissions } from '@/lib/permissions/use-permissions';
 import { cn } from '@/lib/utils/cn';
 import { formatDateTime, formatRelativeTime } from '@/lib/utils/date';
 import { useRealtimeStore } from '@/stores/realtime-store';
-import { type Machine } from '@/types/machine';
+import { PartsSection } from '@/features/machine-parts/components/parts-section';
+import { MachineMaintenanceCard } from '@/features/maintenance/components/machine-maintenance-card';
+import { type MachineDetail } from '@/types/machine';
+import { formatDate } from '@/lib/utils/date';
 import { useMachine } from '../api/queries';
 import { ActivityTimeline } from './activity-timeline';
 import { type MachineDialog, MachineManageDialogs } from './machine-manage-dialogs';
 import { MachineStats } from './machine-stats';
 
-function CurrentState({ machine }: { machine: Machine }) {
-  const config = MACHINE_STATE_CONFIG[machine.status];
+/**
+ * The machine's statuses exactly as the API derived them. The part counts beside them are context,
+ * not a calculation: this screen never works a status out from the parts.
+ */
+function SystemStatusNote({ machine }: { machine: MachineDetail }) {
+  // Only worth showing when parts pull the effective status away from the machine's own state.
+  if (machine.systemStatus === machine.status) return null;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      System status
+      <MachineStateBadge state={machine.systemStatus} size="sm" />
+      <Tooltip content="The machine itself is in this state, but one or more of its parts are in a more severe state, so they set the effective status.">
+        <button type="button" className="inline-flex text-muted hover:text-ink" aria-label="Why the system status differs">
+          <Info className="size-3.5" aria-hidden />
+        </button>
+      </Tooltip>
+    </span>
+  );
+}
+
+function OperationalStatusCard({ machine }: { machine: MachineDetail }) {
+  const config = MACHINE_OPERATIONAL_STATUS_CONFIG[machine.operationalStatus];
   const Icon = config.icon;
   const tone = TONE_CLASSES[config.tone];
   const highlighted = useRealtimeStore((state) => machine.id in state.highlightedMachines);
   const clearHighlight = useRealtimeStore((state) => state.clearHighlight);
+
+  const partsCaption =
+    machine.parts.total === 0
+      ? 'No parts configured'
+      : machine.parts.blocking > 0
+        ? `${machine.parts.blocking} of ${machine.parts.total} parts blocking`
+        : machine.parts.total - machine.parts.active > 0
+          ? `${machine.parts.total - machine.parts.active} of ${machine.parts.total} parts need attention`
+          : `All ${machine.parts.total} parts active`;
 
   return (
     <Card className={cn('overflow-hidden', highlighted && 'animate-row-flash')} onAnimationEnd={() => clearHighlight(machine.id)}>
@@ -51,13 +87,27 @@ function CurrentState({ machine }: { machine: Machine }) {
           <Icon className="size-7" aria-hidden />
         </span>
         <div className="min-w-0 flex-1" aria-live="polite">
-          <p className="text-xs font-medium tracking-wide text-muted uppercase">Current state</p>
+          <p className="text-xs font-medium tracking-wide text-muted uppercase">Machine status</p>
           <p className={cn('mt-0.5 text-2xl font-semibold tracking-tight', tone.text)}>{config.label}</p>
           <p className="text-[13px] text-muted">
-            {config.description} · updated {formatRelativeTime(machine.updatedAt)}
+            {partsCaption} · updated {formatRelativeTime(machine.updatedAt)}
           </p>
         </div>
         <LiveIndicator />
+      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line bg-sunken px-5 py-2.5 text-xs text-muted">
+        <span className="inline-flex items-center gap-1.5">
+          Status
+          <MachineStateBadge state={machine.status} size="sm" />
+        </span>
+        <SystemStatusNote machine={machine} />
+        {machine.maintenance ? (
+          <span className="inline-flex items-center gap-1.5">
+            Preventive maintenance
+            <MaintenanceStateBadge state={machine.maintenance.state} size="sm" />
+            <span>{describeDaysUntilDue(machine.maintenance.daysUntilDue).toLowerCase()}</span>
+          </span>
+        ) : null}
       </div>
     </Card>
   );
@@ -129,6 +179,7 @@ export function MachineDetailView({ machineId }: { machineId: number }) {
         meta={
           <>
             <MachineStateBadge state={machine.status} />
+            <OperationalStatusBadge status={machine.operationalStatus} />
             {machine.isActive ? null : (
               <Badge tone="neutral" variant="outline">
                 Deactivated
@@ -181,11 +232,14 @@ export function MachineDetailView({ machineId }: { machineId: number }) {
       )}
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <CurrentState machine={machine} />
+        {/* One cell per column, so the two columns flow independently instead of sharing row heights. */}
+        <div className="flex flex-col gap-4 lg:col-span-2">
+          <OperationalStatusCard machine={machine} />
+          <PartsSection machine={machine} />
         </div>
-        <div className="flex flex-col gap-4 lg:row-span-2">
+        <div className="flex flex-col gap-4">
           <MachineStats machine={machine} />
+          <MachineMaintenanceCard machine={machine} />
           <Card>
             <CardHeader title="Machine information" />
             <CardContent>
@@ -196,6 +250,23 @@ export function MachineDetailView({ machineId }: { machineId: number }) {
                   { label: 'Serial number', value: <span className="font-mono">{machine.serialNumber}</span> },
                   { label: 'Description', value: machine.description ?? <span className="text-muted">No description</span> },
                   { label: 'Record status', value: machine.isActive ? 'Active' : 'Deactivated' },
+                  {
+                    label: 'Parts',
+                    value:
+                      machine.parts.total === 0 ? (
+                        <span className="text-muted">None configured</span>
+                      ) : (
+                        `${machine.parts.total} (${machine.parts.active} active)`
+                      ),
+                  },
+                  {
+                    label: 'Next maintenance',
+                    value: machine.maintenance ? (
+                      formatDate(machine.maintenance.nextMaintenanceAt)
+                    ) : (
+                      <span className="text-muted">No schedule</span>
+                    ),
+                  },
                   { label: 'Created', value: formatDateTime(machine.createdAt) },
                   { label: 'Last updated', value: formatDateTime(machine.updatedAt) },
                 ]}
@@ -203,9 +274,11 @@ export function MachineDetailView({ machineId }: { machineId: number }) {
             </CardContent>
           </Card>
         </div>
-        <div className="lg:col-span-2">
-          <ActivityTimeline machineId={machine.id} emptyAction={machine.isActive ? recordButton : null} />
-        </div>
+      </div>
+
+      {/* Full width, and last on small screens so the maintenance plan comes first. */}
+      <div className="mt-4">
+        <ActivityTimeline machineId={machine.id} parts={machine.partDetails} emptyAction={machine.isActive ? recordButton : null} />
       </div>
 
       {canManage ? (

@@ -2,9 +2,22 @@ import { io, type ManagerOptions, type Socket, type SocketOptions } from 'socket
 import { env } from '@/config/env';
 import { ErrorCode } from '@/constants/error-codes';
 import { isMachineState } from '@/constants/machine-state';
+import { isMachineOperationalStatus } from '@/constants/machine-operational-status';
+import { isOperationalImpact } from '@/constants/machine-part';
+import { isMaintenanceScheduleState } from '@/constants/maintenance';
+import { isLogStatus } from '@/constants/log-status';
 import {
+  MACHINE_OPERATIONAL_STATUS_UPDATED_EVENT,
+  MACHINE_PART_UPDATED_EVENT,
   MACHINE_STATUS_UPDATED_EVENT,
+  MAINTENANCE_COMPLETED_EVENT,
+  MAINTENANCE_REMINDER_EVENT,
+  type MachineOperationalStatusUpdatedEvent,
+  type MachinePartUpdatedEvent,
+  type MachineStatusTrigger,
   type MachineStatusUpdatedEvent,
+  type MaintenanceCompletedEvent,
+  type MaintenanceReminderEvent,
   type RealtimeConnectionStatus,
   SESSION_EXPIRED_EVENT,
   type StatusBoardServerEvents,
@@ -16,27 +29,117 @@ export const SOCKET_PATH = '/socket.io';
 /** Avoids a refresh loop if the server keeps rejecting fresh tokens. */
 const TOKEN_REFRESH_COOLDOWN_MS = 10_000;
 
-const CHANGE_SOURCES: ReadonlySet<string> = new Set(['MACHINE_LOG_CREATED', 'MACHINE_LOG_UPDATED', 'MACHINE_LOG_DELETED']);
+const TRIGGER_TYPES: ReadonlySet<string> = new Set(['MACHINE_PART', 'MACHINE_LOG', 'MAINTENANCE_EVENT']);
+const LOG_SCOPES: ReadonlySet<string> = new Set(['MACHINE', 'PART']);
 
-/** Validates an incoming payload before it touches the cache. */
+function isActor(value: unknown): value is { id: number; name: string } {
+  if (typeof value !== 'object' || value === null) return false;
+  const actor = value as Record<string, unknown>;
+  return typeof actor.id === 'number' && typeof actor.name === 'string';
+}
+
+const isOptional = (value: unknown, check: (value: unknown) => boolean) => value === undefined || check(value);
+const isNumber = (value: unknown) => typeof value === 'number';
+
+/** What caused a status recalculation; optional ids must be numbers when present. */
+function isStatusTrigger(value: unknown): value is MachineStatusTrigger {
+  if (typeof value !== 'object' || value === null) return false;
+  const trigger = value as Record<string, unknown>;
+  return (
+    typeof trigger.type === 'string' &&
+    TRIGGER_TYPES.has(trigger.type) &&
+    isOptional(trigger.partId, isNumber) &&
+    isOptional(trigger.logId, isNumber) &&
+    isOptional(trigger.maintenanceEventId, isNumber) &&
+    isOptional(trigger.scope, (scope) => typeof scope === 'string' && LOG_SCOPES.has(scope))
+  );
+}
+
+/** Validates an incoming `machine.status.updated` payload before it touches the cache. */
 export function isMachineStatusUpdatedEvent(value: unknown): value is MachineStatusUpdatedEvent {
   if (typeof value !== 'object' || value === null) return false;
   const event = value as Record<string, unknown>;
-  const updatedBy = event.updatedBy as Record<string, unknown> | null | undefined;
   return (
     typeof event.machineId === 'number' &&
     typeof event.machineName === 'string' &&
     typeof event.serialNumber === 'string' &&
     isMachineState(event.previousStatus) &&
     isMachineState(event.newStatus) &&
-    typeof event.logId === 'number' &&
+    typeof event.reason === 'string' &&
+    isStatusTrigger(event.trigger) &&
+    (event.logId === null || typeof event.logId === 'number') &&
     typeof event.timestamp === 'string' &&
-    typeof event.source === 'string' &&
-    CHANGE_SOURCES.has(event.source) &&
-    typeof updatedBy === 'object' &&
-    updatedBy !== null &&
-    typeof updatedBy.id === 'number' &&
-    typeof updatedBy.name === 'string'
+    isActor(event.updatedBy)
+  );
+}
+
+/** Validates an incoming `machine.operational-status.updated` payload before it touches the cache. */
+export function isOperationalStatusEvent(value: unknown): value is MachineOperationalStatusUpdatedEvent {
+  if (typeof value !== 'object' || value === null) return false;
+  const event = value as Record<string, unknown>;
+  return (
+    typeof event.machineId === 'number' &&
+    typeof event.machineName === 'string' &&
+    typeof event.serialNumber === 'string' &&
+    isMachineOperationalStatus(event.previousStatus) &&
+    isMachineOperationalStatus(event.newStatus) &&
+    typeof event.reason === 'string' &&
+    typeof event.timestamp === 'string' &&
+    isStatusTrigger(event.trigger) &&
+    isActor(event.updatedBy)
+  );
+}
+
+/** Validates an incoming `machine.part.updated` payload before it touches the cache. */
+export function isMachinePartUpdatedEvent(value: unknown): value is MachinePartUpdatedEvent {
+  if (typeof value !== 'object' || value === null) return false;
+  const event = value as Record<string, unknown>;
+  return (
+    typeof event.machineId === 'number' &&
+    typeof event.partId === 'number' &&
+    typeof event.partCode === 'string' &&
+    typeof event.partName === 'string' &&
+    isMachineState(event.previousStatus) &&
+    isMachineState(event.newStatus) &&
+    isOperationalImpact(event.operationalImpact) &&
+    typeof event.isCritical === 'boolean' &&
+    typeof event.logId === 'number' &&
+    isLogStatus(event.logStatus) &&
+    typeof event.timestamp === 'string' &&
+    isActor(event.updatedBy)
+  );
+}
+
+/** Validates an incoming `maintenance.reminder` payload. */
+export function isMaintenanceReminderEvent(value: unknown): value is MaintenanceReminderEvent {
+  if (typeof value !== 'object' || value === null) return false;
+  const event = value as Record<string, unknown>;
+  return (
+    typeof event.scheduleId === 'number' &&
+    typeof event.machineId === 'number' &&
+    typeof event.machineName === 'string' &&
+    typeof event.serialNumber === 'string' &&
+    isMaintenanceScheduleState(event.state) &&
+    typeof event.nextMaintenanceAt === 'string' &&
+    typeof event.daysUntilDue === 'number' &&
+    typeof event.timestamp === 'string'
+  );
+}
+
+/** Validates an incoming `maintenance.completed` payload. */
+export function isMaintenanceCompletedEvent(value: unknown): value is MaintenanceCompletedEvent {
+  if (typeof value !== 'object' || value === null) return false;
+  const event = value as Record<string, unknown>;
+  const performedBy = event.performedBy;
+  return (
+    typeof event.eventId === 'number' &&
+    typeof event.machineId === 'number' &&
+    typeof event.machineName === 'string' &&
+    typeof event.completedAt === 'string' &&
+    typeof event.timestamp === 'string' &&
+    (event.scheduleId === null || typeof event.scheduleId === 'number') &&
+    (event.nextMaintenanceAt === null || typeof event.nextMaintenanceAt === 'string') &&
+    (performedBy === null || isActor(performedBy))
   );
 }
 
@@ -46,6 +149,10 @@ export interface StatusBoardOptions {
   getAccessToken(): Promise<string | null>;
   refreshAccessToken(): Promise<string | null>;
   onStatusUpdated(event: MachineStatusUpdatedEvent): void;
+  onOperationalStatusUpdated(event: MachineOperationalStatusUpdatedEvent): void;
+  onPartUpdated(event: MachinePartUpdatedEvent): void;
+  onMaintenanceReminder(event: MaintenanceReminderEvent): void;
+  onMaintenanceCompleted(event: MaintenanceCompletedEvent): void;
   onConnectionStatusChange(status: RealtimeConnectionStatus): void;
   /** Called after a reconnection, when events may have been missed. */
   onResync(): void;
@@ -124,6 +231,22 @@ export function connectStatusBoard(options: StatusBoardOptions): StatusBoardConn
 
   socket.on(MACHINE_STATUS_UPDATED_EVENT, (payload: unknown) => {
     if (isMachineStatusUpdatedEvent(payload)) options.onStatusUpdated(payload);
+  });
+
+  socket.on(MACHINE_OPERATIONAL_STATUS_UPDATED_EVENT, (payload: unknown) => {
+    if (isOperationalStatusEvent(payload)) options.onOperationalStatusUpdated(payload);
+  });
+
+  socket.on(MACHINE_PART_UPDATED_EVENT, (payload: unknown) => {
+    if (isMachinePartUpdatedEvent(payload)) options.onPartUpdated(payload);
+  });
+
+  socket.on(MAINTENANCE_REMINDER_EVENT, (payload: unknown) => {
+    if (isMaintenanceReminderEvent(payload)) options.onMaintenanceReminder(payload);
+  });
+
+  socket.on(MAINTENANCE_COMPLETED_EVENT, (payload: unknown) => {
+    if (isMaintenanceCompletedEvent(payload)) options.onMaintenanceCompleted(payload);
   });
 
   const handleOnline = () => {

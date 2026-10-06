@@ -15,19 +15,26 @@ import { SearchInput } from '@/components/ui/search-input';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Select } from '@/components/ui/select';
 import { TableSkeleton } from '@/components/ui/skeleton';
-import { MACHINE_STATE_CONFIG } from '@/constants/machine-state';
+import { MACHINE_OPERATIONAL_STATUS_CONFIG } from '@/constants/machine-operational-status';
+import { MACHINE_STATE_OPTIONS } from '@/constants/machine-state';
 import { useAnalyticsOverview } from '@/features/analytics/api/queries';
-import { getStateCounts } from '@/features/dashboard/components/status-distribution';
+import { getOperationalCounts } from '@/features/dashboard/components/status-distribution';
+import { useMaintenanceAttention } from '@/features/maintenance/api/use-attention';
 import { useUrlState } from '@/hooks/use-url-state';
 import { Permission } from '@/lib/permissions/permissions';
 import { usePermissions } from '@/lib/permissions/use-permissions';
 import { cn } from '@/lib/utils/cn';
 import { serializeSort } from '@/lib/utils/url-params';
 import { type MachineViewMode, useUiStore } from '@/stores/ui-store';
-import { MACHINE_STATES, type MachineSortField, type MachineState } from '@/types/machine';
+import {
+  MACHINE_OPERATIONAL_STATUSES,
+  type MachineOperationalStatus,
+  type MachineSortField,
+} from '@/types/machine';
 import { useMachines } from '../api/queries';
 import {
   hasMachineFilters,
+  MACHINE_FILTER_PARAMS,
   MACHINE_SORT_DEFAULT_ORDER,
   MACHINE_SORT_OPTIONS,
   parseMachineFilters,
@@ -37,7 +44,7 @@ import { MachineCardGrid, MachineTable } from './machine-list';
 import { MachineFormDialog } from './machine-form-dialog';
 
 const ALL = 'ALL';
-type StatusChip = MachineState | typeof ALL;
+type StatusChip = MachineOperationalStatus | typeof ALL;
 
 const VIEW_OPTIONS = [
   { value: 'table', label: 'Table view', icon: Rows3, iconOnly: true },
@@ -52,6 +59,8 @@ export function MachinesView() {
 
   const machines = useMachines(toListMachinesParams(filters));
   const overview = useAnalyticsOverview({ days: 30 });
+  // The machines endpoint does not carry schedules, so due dates come from the maintenance boards.
+  const maintenance = useMaintenanceAttention({ limit: 100, enabled: can(Permission.VIEW_MAINTENANCE) });
   const viewMode = useUiStore((state) => state.machineViewMode);
   const setViewMode = useUiStore((state) => state.setMachineViewMode);
 
@@ -60,15 +69,15 @@ export function MachinesView() {
   const isCreateOpen = createOpen || createRequested;
 
   // Counts describe the whole active fleet, so they are shown only when they match the list.
-  const showCounts = !filters.search && filters.active !== 'false' && overview.data !== undefined;
-  const counts = overview.data ? getStateCounts(overview.data.machines) : [];
+  const showCounts = !filters.search && filters.active !== 'false' && !filters.status && overview.data !== undefined;
+  const counts = overview.data ? getOperationalCounts(overview.data.machineOperational) : [];
   const statusOptions: ChipOption<StatusChip>[] = [
     { value: ALL, label: 'All', count: showCounts ? counts.reduce((sum, row) => sum + row.count, 0) : undefined },
-    ...MACHINE_STATES.map((state) => ({
-      value: state,
-      label: MACHINE_STATE_CONFIG[state].label,
-      swatch: MACHINE_STATE_CONFIG[state].chartColor,
-      count: showCounts ? counts.find((row) => row.state === state)?.count : undefined,
+    ...MACHINE_OPERATIONAL_STATUSES.map((status) => ({
+      value: status,
+      label: MACHINE_OPERATIONAL_STATUS_CONFIG[status].label,
+      swatch: MACHINE_OPERATIONAL_STATUS_CONFIG[status].chartColor,
+      count: showCounts ? counts.find((row) => row.status === status)?.count : undefined,
     })),
   ];
 
@@ -93,7 +102,7 @@ export function MachinesView() {
           title="No machines match your filters"
           description="Try a different search term or status."
           action={
-            <Button variant="secondary" onClick={() => clearParams(['search', 'status', 'active', 'page'])}>
+            <Button variant="secondary" onClick={() => clearParams(MACHINE_FILTER_PARAMS)}>
               Clear filters
             </Button>
           }
@@ -117,15 +126,21 @@ export function MachinesView() {
       <div className={cn('transition-opacity', machines.isPlaceholderData && 'opacity-60')} aria-busy={machines.isFetching}>
         {viewMode === 'table' ? (
           <>
-            <div className="hidden lg:block">
-              <MachineTable machines={items} sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
+            <div className="hidden xl:block">
+              <MachineTable
+                machines={items}
+                sortBy={filters.sortBy}
+                sortOrder={filters.sortOrder}
+                onSort={handleSort}
+                maintenance={maintenance.byMachineId}
+              />
             </div>
-            <div className="lg:hidden">
-              <MachineCardGrid machines={items} dense />
+            <div className="xl:hidden">
+              <MachineCardGrid machines={items} dense maintenance={maintenance.byMachineId} />
             </div>
           </>
         ) : (
-          <MachineCardGrid machines={items} />
+          <MachineCardGrid machines={items} maintenance={maintenance.byMachineId} />
         )}
       </div>
     );
@@ -151,10 +166,10 @@ export function MachinesView() {
 
       <Card>
         <div className="flex flex-col gap-3 border-b border-line p-3 sm:p-4">
-          <ChipGroup
-            label="Filter by status"
+          <ChipGroup<StatusChip>
+            label="Filter by machine status"
             options={statusOptions}
-            value={filters.status ?? ALL}
+            value={filters.operationalStatus ?? ALL}
             onChange={(value) => setParams({ status: value === ALL ? null : value }, { resetPage: true })}
           />
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
@@ -167,6 +182,14 @@ export function MachinesView() {
               className="lg:max-w-sm"
             />
             <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+              <Select
+                aria-label="Filter by machine status"
+                value={filters.status ?? ''}
+                onChange={(event) => setParams({ workflow: event.target.value || null }, { resetPage: true })}
+                options={MACHINE_STATE_OPTIONS.map((option) => ({ ...option }))}
+                placeholder="Any status"
+                wrapperClassName="min-w-44 flex-1 sm:flex-none"
+              />
               {canManage ? (
                 <Select
                   aria-label="Filter by record status"
@@ -185,7 +208,7 @@ export function MachinesView() {
                 value={serializeSort(filters)}
                 onChange={(event) => setParams({ sort: event.target.value }, { resetPage: true })}
                 options={MACHINE_SORT_OPTIONS.map((option) => ({ ...option }))}
-                wrapperClassName={cn('min-w-40 flex-1 sm:flex-none', viewMode === 'table' && 'lg:hidden')}
+                wrapperClassName={cn('min-w-40 flex-1 sm:flex-none', viewMode === 'table' && 'xl:hidden')}
               />
               <SegmentedControl<MachineViewMode>
                 label="Layout"

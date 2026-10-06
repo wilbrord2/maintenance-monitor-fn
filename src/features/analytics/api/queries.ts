@@ -52,6 +52,26 @@ export function useTechnicianAnalytics(params: AnalyticsTopParams, options: Quer
   });
 }
 
+export function usePartsAnalytics(params: AnalyticsTopParams, options: QueryToggle = {}) {
+  return useQuery({
+    queryKey: queryKeys.analytics.parts(params),
+    queryFn: ({ signal }) => analyticsApi.parts(params, { signal }),
+    placeholderData: keepPreviousData,
+    staleTime: ANALYTICS_STALE_TIME,
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useMaintenanceAnalytics(range: AnalyticsRangeParams, options: QueryToggle = {}) {
+  return useQuery({
+    queryKey: queryKeys.analytics.maintenance(range),
+    queryFn: ({ signal }) => analyticsApi.maintenance(range, { signal }),
+    placeholderData: keepPreviousData,
+    staleTime: ANALYTICS_STALE_TIME,
+    enabled: options.enabled ?? true,
+  });
+}
+
 export function useFaultAnalytics(params: AnalyticsFaultsParams, options: QueryToggle = {}) {
   return useQuery({
     queryKey: queryKeys.analytics.faults(params),
