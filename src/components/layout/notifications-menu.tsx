@@ -138,7 +138,7 @@ export function NotificationsMenu() {
           className="relative"
           aria-label={unreadCount > 0 ? `Live updates, ${unreadCount} new` : 'Live updates'}
         >
-          <Bell className="size-[18px]" aria-hidden />
+          <Bell className="size-4.5" aria-hidden />
           {unreadCount > 0 ? (
             <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-critical px-1 text-[10px] leading-none font-semibold text-white tabular-nums">
               {unreadCount > 9 ? '9+' : unreadCount}
@@ -179,7 +179,7 @@ export function NotificationsMenu() {
                     <Link
                       href={content.href}
                       onClick={() => setOpen(false)}
-                      className="block px-4 py-3 hover:bg-hover focus-visible:outline-offset-[-2px]"
+                      className="block px-4 py-3 hover:bg-hover focus-visible:-outline-offset-2"
                     >
                       <div className="flex items-baseline justify-between gap-3">
                         <p className="truncate text-[13px] font-semibold text-ink">{content.title}</p>
