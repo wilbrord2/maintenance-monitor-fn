@@ -36,7 +36,8 @@ import { cn } from '@/lib/utils/cn';
 import { formatDateTime, formatRelativeTime } from '@/lib/utils/date';
 import { useRealtimeStore } from '@/stores/realtime-store';
 import { PartsSection } from '@/features/machine-parts/components/parts-section';
-import { MachineMaintenanceCard } from '@/features/maintenance/components/machine-maintenance-card';
+import { summarizeSchedules } from '@/features/maintenance/lib/attention';
+import { MaintenancePlanSection } from '@/features/maintenance/components/maintenance-plan-section';
 import { type MachineDetail } from '@/types/machine';
 import { formatDate } from '@/lib/utils/date';
 import { useMachine } from '../api/queries';
@@ -101,15 +102,30 @@ function OperationalStatusCard({ machine }: { machine: MachineDetail }) {
           <MachineStateBadge state={machine.status} size="sm" />
         </span>
         <SystemStatusNote machine={machine} />
-        {machine.maintenance ? (
-          <span className="inline-flex items-center gap-1.5">
-            Preventive maintenance
-            <MaintenanceStateBadge state={machine.maintenance.state} size="sm" />
-            <span>{describeDaysUntilDue(machine.maintenance.daysUntilDue).toLowerCase()}</span>
-          </span>
-        ) : null}
+        <MaintenanceSummary machine={machine} />
       </div>
     </Card>
+  );
+}
+
+/**
+ * The most urgent maintenance task, as context beside the status. The state is the API's; a machine
+ * with overdue maintenance keeps whatever status its logs and parts give it.
+ */
+function MaintenanceSummary({ machine }: { machine: MachineDetail }) {
+  const summary = summarizeSchedules(machine.maintenanceSchedules);
+  if (!summary.next) return null;
+  const late = summary.overdue + summary.due;
+  return (
+    <a href="#maintenance" className="inline-flex items-center gap-1.5 hover:text-ink">
+      Preventive maintenance
+      <MaintenanceStateBadge state={summary.next.state} size="sm" />
+      <span>
+        {late > 1
+          ? `${late} tasks need attention`
+          : `${summary.next.taskName} ${describeDaysUntilDue(summary.next.daysUntilDue).toLowerCase()}`}
+      </span>
+    </a>
   );
 }
 
@@ -155,6 +171,7 @@ export function MachineDetailView({ machineId }: { machineId: number }) {
   }
 
   const machine = machineQuery.data;
+  const nextTask = summarizeSchedules(machine.maintenanceSchedules).next;
   const canManage = can(Permission.MANAGE_MACHINES);
   const canRecord = can(Permission.CREATE_LOGS);
 
@@ -236,10 +253,10 @@ export function MachineDetailView({ machineId }: { machineId: number }) {
         <div className="flex flex-col gap-4 lg:col-span-2">
           <OperationalStatusCard machine={machine} />
           <PartsSection machine={machine} />
+          <MaintenancePlanSection machine={machine} />
         </div>
         <div className="flex flex-col gap-4">
           <MachineStats machine={machine} />
-          <MachineMaintenanceCard machine={machine} />
           <Card>
             <CardHeader title="Machine information" />
             <CardContent>
@@ -261,10 +278,10 @@ export function MachineDetailView({ machineId }: { machineId: number }) {
                   },
                   {
                     label: 'Next maintenance',
-                    value: machine.maintenance ? (
-                      formatDate(machine.maintenance.nextMaintenanceAt)
+                    value: nextTask ? (
+                      `${formatDate(nextTask.nextMaintenanceAt)} · ${nextTask.taskName}`
                     ) : (
-                      <span className="text-muted">No schedule</span>
+                      <span className="text-muted">No active tasks</span>
                     ),
                   },
                   { label: 'Created', value: formatDateTime(machine.createdAt) },
@@ -276,7 +293,7 @@ export function MachineDetailView({ machineId }: { machineId: number }) {
         </div>
       </div>
 
-      {/* Full width, and last on small screens so the maintenance plan comes first. */}
+      {/* Full width, and last on small screens so the parts and maintenance plan come first. */}
       <div className="mt-4">
         <ActivityTimeline machineId={machine.id} parts={machine.partDetails} emptyAction={machine.isActive ? recordButton : null} />
       </div>

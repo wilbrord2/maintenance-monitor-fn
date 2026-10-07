@@ -64,11 +64,11 @@ export function makeMachine(overrides: Partial<Machine> = {}): Machine {
 }
 
 export function makeMachineDetail(overrides: Partial<MachineDetail> = {}): MachineDetail {
-  const { partDetails, maintenance, ...machine } = overrides;
+  const { partDetails, maintenanceSchedules, ...machine } = overrides;
   return {
     ...makeMachine(machine),
     partDetails: partDetails ?? [],
-    maintenance: maintenance ?? null,
+    maintenanceSchedules: maintenanceSchedules ?? [],
   };
 }
 
@@ -83,6 +83,7 @@ export function makePart(overrides: Partial<MachinePart> = {}): MachinePart {
     partCode: 'PMP-01',
     description: null,
     isCritical: false,
+    nextMaintenance: null,
     createdAt: '2026-01-10T08:00:00.000Z',
     updatedAt: '2026-09-15T08:00:00.000Z',
     ...overrides,
@@ -96,11 +97,16 @@ export function makePart(overrides: Partial<MachinePart> = {}): MachinePart {
   };
 }
 
+/** A part task (the hydraulic pump of machine 5) by default; see {@link makeMachineTask}. */
 export function makeSchedule(overrides: Partial<MaintenanceSchedule> = {}): MaintenanceSchedule {
   return {
     id: 3,
     machineId: 5,
     machine: { id: 5, name: 'Press 1', serialNumber: 'PRS-001' },
+    machinePartId: 11,
+    machinePart: { id: 11, name: 'Hydraulic pump', partCode: 'PMP-01' },
+    taskName: 'Hydraulic pump',
+    description: null,
     intervalDays: 20,
     reminderDaysBefore: 5,
     lastMaintenanceAt: '2026-09-25T09:00:00.000Z',
@@ -114,11 +120,28 @@ export function makeSchedule(overrides: Partial<MaintenanceSchedule> = {}): Main
   };
 }
 
+/** A machine-wide task of machine 5. */
+export function makeMachineTask(overrides: Partial<MaintenanceSchedule> = {}): MaintenanceSchedule {
+  return makeSchedule({
+    id: 4,
+    machinePartId: null,
+    machinePart: null,
+    taskName: 'External cleaning',
+    intervalDays: 1,
+    reminderDaysBefore: 0,
+    ...overrides,
+  });
+}
+
+/** Planned work for the hydraulic pump task by default. */
 export function makeMaintenanceEvent(overrides: Partial<MaintenanceEvent> = {}): MaintenanceEvent {
   return {
     id: 60,
     maintenanceScheduleId: 3,
+    taskName: 'Hydraulic pump',
     machine: { id: 5, name: 'Press 1', serialNumber: 'PRS-001' },
+    machinePartId: 11,
+    machinePart: { id: 11, name: 'Hydraulic pump', partCode: 'PMP-01' },
     performedBy: { id: 7, fullName: 'John Mugisha', position: 'Mechanic' },
     machineLogId: null,
     scheduledFor: '2026-10-15T09:00:00.000Z',
@@ -280,6 +303,9 @@ export function makeReminderEvent(overrides: Partial<MaintenanceReminderEvent> =
     machineId: 5,
     machineName: 'Press 1',
     serialNumber: 'PRS-001',
+    machinePartId: 11,
+    partName: 'Hydraulic pump',
+    taskName: 'Hydraulic pump',
     state: MaintenanceScheduleState.DUE,
     nextMaintenanceAt: '2026-10-15T09:00:00.000Z',
     daysUntilDue: 0,
@@ -296,6 +322,9 @@ export function makeMaintenanceCompletedEvent(
     eventId: 60,
     machineId: 5,
     machineName: 'Press 1',
+    machinePartId: 11,
+    partName: 'Hydraulic pump',
+    taskName: 'Hydraulic pump',
     completedAt: '2026-10-18T11:00:00.000Z',
     nextMaintenanceAt: '2026-11-07T11:00:00.000Z',
     performedBy: { id: 7, name: 'John Mugisha' },

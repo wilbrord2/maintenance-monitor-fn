@@ -9,19 +9,21 @@ import { LogStatusBadge } from '@/components/status/log-status-badge';
 import { LogSubjectBadge, MachineStatusChange } from '@/components/status/log-subject';
 import { OperationalImpactBadge } from '@/components/status/part-status-badge';
 import { StateTransition } from '@/components/status/state-transition';
-import { Button } from '@/components/ui/button';
 import { Card, CardHeader } from '@/components/ui/card';
 import { ChipGroup } from '@/components/ui/chip-group';
 import { Select } from '@/components/ui/select';
+import { Pagination } from '@/components/ui/pagination';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { ROUTES } from '@/constants/routes';
+import { cn } from '@/lib/utils/cn';
 import { formatDayHeading, formatTime, toIsoString, toLocalDayKey } from '@/lib/utils/date';
 import { formatHours, formatNumber } from '@/lib/utils/format';
 import { LogScope, LogStatus, type MachineLog } from '@/types/machine-log';
 import { type MachinePart } from '@/types/machine-part';
-import { useMachineHistory } from '../api/queries';
+import { useMachineHistoryPage } from '../api/queries';
 
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 10;
+const PAGE_SIZE_OPTIONS = [5, 10, 20, 50] as const;
 type HistoryFilter = LogStatus | 'ALL';
 type ScopeFilter = LogScope | 'ALL';
 
@@ -82,8 +84,11 @@ export function ActivityTimeline({ machineId, parts = [], emptyAction }: Activit
   const [filter, setFilter] = useState<HistoryFilter>('ALL');
   const [scope, setScope] = useState<ScopeFilter>('ALL');
   const [partId, setPartId] = useState('');
-  const history = useMachineHistory(machineId, {
-    limit: PAGE_SIZE,
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const history = useMachineHistoryPage(machineId, {
+    page,
+    limit,
     sortBy: 'startedAt',
     sortOrder: 'desc',
     logStatus: filter === 'ALL' ? undefined : filter,
@@ -92,8 +97,8 @@ export function ActivityTimeline({ machineId, parts = [], emptyAction }: Activit
     machinePartId: partId ? Number(partId) : undefined,
   });
 
-  const logs = history.data?.pages.flatMap((page) => page.items) ?? [];
-  const total = history.data?.pages[0]?.meta.totalItems ?? 0;
+  const logs = history.data?.items ?? [];
+  const total = history.data?.meta.totalItems ?? 0;
   const filtered = filter !== 'ALL' || scope !== 'ALL' || partId !== '';
   const partOptions = [...parts]
     .sort((a, b) => a.partCode.localeCompare(b.partCode))
@@ -108,7 +113,10 @@ export function ActivityTimeline({ machineId, parts = [], emptyAction }: Activit
           <ChipGroup<HistoryFilter>
             label="Filter history by log status"
             value={filter}
-            onChange={setFilter}
+            onChange={(value) => {
+              setFilter(value);
+              setPage(1);
+            }}
             options={[
               { value: 'ALL', label: 'All' },
               { value: LogStatus.OPEN, label: 'Open' },
@@ -125,6 +133,7 @@ export function ActivityTimeline({ machineId, parts = [], emptyAction }: Activit
             onChange={(value) => {
               setScope(value);
               if (value !== LogScope.PART) setPartId('');
+              setPage(1);
             }}
             options={[
               { value: 'ALL', label: 'All events' },
@@ -135,7 +144,10 @@ export function ActivityTimeline({ machineId, parts = [], emptyAction }: Activit
           <Select
             aria-label="Filter history by part"
             value={partId}
-            onChange={(event) => setPartId(event.target.value)}
+            onChange={(event) => {
+              setPartId(event.target.value);
+              setPage(1);
+            }}
             options={partOptions}
             placeholder="All parts"
             wrapperClassName="sm:ml-auto sm:min-w-56"
@@ -144,7 +156,7 @@ export function ActivityTimeline({ machineId, parts = [], emptyAction }: Activit
       ) : null}
       {history.isPending ? (
         <ListSkeleton rows={4} />
-      ) : history.isError && logs.length === 0 ? (
+      ) : history.isError && !history.data ? (
         <ErrorState compact error={history.error} onRetry={() => void history.refetch()} isRetrying={history.isFetching} />
       ) : logs.length === 0 ? (
         <EmptyState
@@ -155,7 +167,10 @@ export function ActivityTimeline({ machineId, parts = [], emptyAction }: Activit
           action={!filtered ? emptyAction : null}
         />
       ) : (
-        <div className="px-4 py-4 sm:px-5">
+        <div
+          className={cn('px-4 py-4 transition-opacity sm:px-5', history.isPlaceholderData && 'opacity-60')}
+          aria-busy={history.isFetching}
+        >
           {groupLogsByDay(logs).map((group) => (
             <section key={group.key} aria-label={formatDayHeading(group.logs[0]?.startedAt)} className="mb-2">
               <h3 className="mb-3 font-mono text-[11px] font-semibold tracking-wider text-muted uppercase">
@@ -168,15 +183,20 @@ export function ActivityTimeline({ machineId, parts = [], emptyAction }: Activit
               </ol>
             </section>
           ))}
-          {history.hasNextPage ? (
-            <div className="border-t border-line-soft pt-3 text-center">
-              <Button variant="secondary" size="sm" onClick={() => void history.fetchNextPage()} loading={history.isFetchingNextPage}>
-                Load older activity
-              </Button>
-            </div>
-          ) : null}
         </div>
       )}
+      {history.data && total > 0 ? (
+        <Pagination
+          meta={history.data.meta}
+          itemLabel="events"
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setLimit(size);
+            setPage(1);
+          }}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+        />
+      ) : null}
     </Card>
   );
 }

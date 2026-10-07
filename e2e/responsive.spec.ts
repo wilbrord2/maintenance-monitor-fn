@@ -47,7 +47,8 @@ test.describe('responsive layout', () => {
       operationalImpact: 'BLOCKING',
       faultDescription: 'Pressure drop on the main cylinder',
     });
-    await createSchedule(token, machine.id, { intervalDays: 20, reminderDaysBefore: 5 });
+    await createSchedule(token, machine.id, { taskName: 'External cleaning', intervalDays: 1 });
+    await createSchedule(token, machine.id, { machinePartId: part.id, intervalDays: 7 });
 
     await signInAndWaitForDashboard(page, e2eEnv.adminEmail, e2eEnv.adminPassword);
 

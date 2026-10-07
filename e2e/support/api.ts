@@ -118,22 +118,43 @@ export async function createPart(
 export interface TestSchedule {
   id: number;
   machineId: number;
+  machinePartId: number | null;
+  taskName: string;
   intervalDays: number;
+  reminderDaysBefore: number;
   nextMaintenanceAt: string;
   lastMaintenanceAt: string | null;
   state: string;
+  isActive: boolean;
 }
 
+/** A maintenance task: a part task with `machinePartId`, otherwise machine-wide (which needs a name). */
 export async function createSchedule(
   token: string,
   machineId: number,
-  body: { intervalDays: number; reminderDaysBefore?: number; nextMaintenanceAt?: string; lastMaintenanceAt?: string },
+  body: {
+    machinePartId?: number;
+    taskName?: string;
+    intervalDays: number;
+    reminderDaysBefore?: number;
+    nextMaintenanceAt?: string;
+    lastMaintenanceAt?: string;
+  },
 ): Promise<TestSchedule> {
-  return call<TestSchedule>('post', `/machines/${machineId}/maintenance`, { token, data: body });
+  const data = body.machinePartId === undefined ? { taskName: `Task ${uniqueSuffix()}`, ...body } : body;
+  return call<TestSchedule>('post', `/machines/${machineId}/maintenance-schedules`, { token, data });
 }
 
-export async function getSchedule(token: string, machineId: number): Promise<TestSchedule> {
-  return call<TestSchedule>('get', `/machines/${machineId}/maintenance`, { token });
+export async function getSchedule(token: string, scheduleId: number): Promise<TestSchedule> {
+  return call<TestSchedule>('get', `/maintenance-schedules/${scheduleId}`, { token });
+}
+
+export async function listSchedules(token: string, machineId: number): Promise<TestSchedule[]> {
+  return call<TestSchedule[]>('get', `/machines/${machineId}/maintenance-schedules`, { token });
+}
+
+export async function getPart(token: string, machineId: number, partId: number): Promise<TestPart> {
+  return call<TestPart>('get', `/machines/${machineId}/parts/${partId}`, { token });
 }
 
 /** Reads the temporary password from the SMTP sink's copy of the onboarding email. */

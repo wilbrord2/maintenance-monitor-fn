@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { frequencyForInterval, MAINTENANCE_FREQUENCY_DAYS, type MaintenanceFrequency } from '@/constants/maintenance';
 import { fromDateTimeLocalValue, toDateTimeLocalValue } from '@/lib/utils/date';
 import {
   type CompleteMaintenanceEventRequest,
@@ -12,16 +13,30 @@ import {
 import { emptyToUndefined, optionalText } from './primitives';
 
 export const MAX_INTERVAL_DAYS = 3650;
+export const MAX_TASK_NAME_LENGTH = 160;
 /** The API rejects timestamps more than five minutes in the future. */
 const FUTURE_TOLERANCE_MS = 5 * 60_000;
 const WHOLE_NUMBER_PATTERN = /^\d{1,4}$/;
 
+/** What a task applies to: the whole machine, or one of its parts. */
+export type MaintenanceTaskTarget = 'machine' | 'part';
+/** The three plant frequencies, or a custom number of days. */
+export type MaintenanceFrequencyChoice = MaintenanceFrequency | 'custom';
+
 /**
- * Preventive-maintenance settings. Due dates are not part of the form beyond the optional first
- * one: the API derives every later due date from the actual completion time.
+ * One maintenance task. Due dates are not part of the form beyond the optional first one: the API
+ * derives every later due date from the actual completion time.
  */
 const maintenanceScheduleFormObject = z.object({
+  appliesTo: z.enum(['machine', 'part']),
+  /** Selected part id as a string; empty for a machine-wide task. */
+  machinePartId: z.string(),
+  taskName: optionalText({ label: 'Task name', max: MAX_TASK_NAME_LENGTH }),
+  description: optionalText({ label: 'Description', max: 2000, multiline: true }),
+  frequency: z.enum(['daily', 'weekly', 'monthly', 'custom']),
+  /** Only read when `frequency` is custom. */
   intervalDays: z.string().trim(),
+  /** Empty means "use the server default" on create, and "keep it" on edit. */
   reminderDaysBefore: z.string().trim(),
   lastMaintenanceAt: z.string(),
   nextMaintenanceAt: z.string(),
@@ -36,26 +51,52 @@ export const MAINTENANCE_SCHEDULE_FORM_FIELDS: readonly MaintenanceScheduleFormF
   maintenanceScheduleFormObject.shape,
 ) as MaintenanceScheduleFormField[];
 
-export function createMaintenanceScheduleFormSchema(context: { now?: () => Date } = {}) {
+/** The interval the form describes, or null while the custom value is not a whole number. */
+export function resolveIntervalDays(values: Pick<MaintenanceScheduleFormInput, 'frequency' | 'intervalDays'>): number | null {
+  if (values.frequency !== 'custom') return MAINTENANCE_FREQUENCY_DAYS[values.frequency];
+  const trimmed = values.intervalDays.trim();
+  return WHOLE_NUMBER_PATTERN.test(trimmed) ? Number(trimmed) : null;
+}
+
+/** Maps API field names onto the form: the interval belongs to the frequency picker unless it is custom. */
+export function scheduleServerFieldMap(
+  frequency: MaintenanceFrequencyChoice,
+): Readonly<Record<string, MaintenanceScheduleFormField>> {
+  return { intervalDays: frequency === 'custom' ? 'intervalDays' : 'frequency' };
+}
+
+export function createMaintenanceScheduleFormSchema(context: { now?: () => Date; isEdit?: boolean } = {}) {
   return maintenanceScheduleFormObject.superRefine((values, ctx) => {
     const issue = (path: MaintenanceScheduleFormField, message: string) =>
       ctx.addIssue({ code: 'custom', path: [path], message });
     const now = (context.now?.() ?? new Date()).getTime();
 
-    if (!WHOLE_NUMBER_PATTERN.test(values.intervalDays)) {
-      issue('intervalDays', 'Enter the interval as a whole number of days');
-    } else {
-      const interval = Number(values.intervalDays);
-      if (interval < 1) issue('intervalDays', 'The interval must be at least 1 day');
-      else if (interval > MAX_INTERVAL_DAYS) issue('intervalDays', `The interval must be at most ${MAX_INTERVAL_DAYS} days`);
+    // The part of an existing task cannot change, so it is only checked when creating.
+    if (!context.isEdit && values.appliesTo === 'part' && !values.machinePartId) {
+      issue('machinePartId', 'Choose the part this task inspects');
+    }
+    if (values.appliesTo === 'machine' && !values.taskName) {
+      issue('taskName', 'Enter a name for this machine-wide task');
     }
 
-    if (!WHOLE_NUMBER_PATTERN.test(values.reminderDaysBefore)) {
-      issue('reminderDaysBefore', 'Enter the reminder as a whole number of days');
-    } else if (WHOLE_NUMBER_PATTERN.test(values.intervalDays)) {
-      const reminder = Number(values.reminderDaysBefore);
-      if (reminder > Number(values.intervalDays)) {
-        issue('reminderDaysBefore', "The reminder can't start earlier than one full interval before");
+    let interval: number | null = null;
+    if (values.frequency === 'custom') {
+      if (!WHOLE_NUMBER_PATTERN.test(values.intervalDays)) {
+        issue('intervalDays', 'Enter the interval as a whole number of days');
+      } else {
+        interval = Number(values.intervalDays);
+        if (interval < 1) issue('intervalDays', 'The interval must be at least 1 day');
+        else if (interval > MAX_INTERVAL_DAYS) issue('intervalDays', `The interval must be at most ${MAX_INTERVAL_DAYS} days`);
+      }
+    } else {
+      interval = MAINTENANCE_FREQUENCY_DAYS[values.frequency];
+    }
+
+    if (values.reminderDaysBefore) {
+      if (!WHOLE_NUMBER_PATTERN.test(values.reminderDaysBefore)) {
+        issue('reminderDaysBefore', 'Enter the reminder as a whole number of days');
+      } else if (interval !== null && Number(values.reminderDaysBefore) > interval) {
+        issue('reminderDaysBefore', `The reminder can't start earlier than one full interval (${interval} days) before`);
       }
     }
 
@@ -63,7 +104,7 @@ export function createMaintenanceScheduleFormSchema(context: { now?: () => Date 
       const iso = fromDateTimeLocalValue(values.lastMaintenanceAt);
       if (!iso) issue('lastMaintenanceAt', 'Enter a valid date and time');
       else if (Date.parse(iso) > now + FUTURE_TOLERANCE_MS) {
-        issue('lastMaintenanceAt', "The last maintenance can't be in the future");
+        issue('lastMaintenanceAt', "The last time it was done can't be in the future");
       }
     }
 
@@ -73,16 +114,42 @@ export function createMaintenanceScheduleFormSchema(context: { now?: () => Date 
   });
 }
 
+/**
+ * Form values for a task. A new task starts weekly with the server's reminder default; pass
+ * `machinePartId` (and the part's name) to start a part task for that part.
+ */
 export function maintenanceScheduleToFormInput(
   schedule?: MaintenanceSchedule | null,
+  defaults: { machinePartId?: number; partName?: string } = {},
 ): MaintenanceScheduleFormInput {
+  if (!schedule) {
+    const forPart = defaults.machinePartId !== undefined;
+    return {
+      appliesTo: forPart ? 'part' : 'machine',
+      machinePartId: forPart ? String(defaults.machinePartId) : '',
+      taskName: forPart ? (defaults.partName ?? '') : '',
+      description: '',
+      frequency: 'weekly',
+      intervalDays: '',
+      reminderDaysBefore: '',
+      lastMaintenanceAt: '',
+      nextMaintenanceAt: '',
+      isActive: true,
+    };
+  }
+  const frequency = frequencyForInterval(schedule.intervalDays);
   return {
-    intervalDays: schedule ? String(schedule.intervalDays) : '30',
-    reminderDaysBefore: schedule ? String(schedule.reminderDaysBefore) : '3',
-    lastMaintenanceAt: schedule?.lastMaintenanceAt ? toDateTimeLocalValue(schedule.lastMaintenanceAt) : '',
-    // Editing an existing schedule leaves the due date to the API unless it is deliberately set.
+    appliesTo: schedule.machinePartId === null ? 'machine' : 'part',
+    machinePartId: schedule.machinePartId === null ? '' : String(schedule.machinePartId),
+    taskName: schedule.taskName,
+    description: schedule.description ?? '',
+    frequency: frequency ?? 'custom',
+    intervalDays: frequency ? '' : String(schedule.intervalDays),
+    reminderDaysBefore: String(schedule.reminderDaysBefore),
+    lastMaintenanceAt: schedule.lastMaintenanceAt ? toDateTimeLocalValue(schedule.lastMaintenanceAt) : '',
+    // Editing an existing task leaves the due date to the API unless it is deliberately set.
     nextMaintenanceAt: '',
-    isActive: schedule?.isActive ?? true,
+    isActive: schedule.isActive,
   };
 }
 
@@ -92,25 +159,44 @@ function toIso(value: string): string {
   return iso;
 }
 
-export function toCreateScheduleRequest(
-  values: MaintenanceScheduleFormValues,
-): CreateMaintenanceScheduleRequest {
+function requireInterval(values: MaintenanceScheduleFormValues): number {
+  const interval = resolveIntervalDays(values);
+  if (interval === null) throw new Error(`Invalid interval: ${values.intervalDays}`);
+  return interval;
+}
+
+/**
+ * A part task sends its part and, only when given, a name (the API defaults it to the part's name).
+ * A machine-wide task sends no part. An empty reminder is left to the API's default.
+ */
+export function toCreateScheduleRequest(values: MaintenanceScheduleFormValues): CreateMaintenanceScheduleRequest {
+  const forPart = values.appliesTo === 'part';
   return {
-    intervalDays: Number(values.intervalDays),
-    reminderDaysBefore: Number(values.reminderDaysBefore),
+    ...(forPart ? { machinePartId: Number(values.machinePartId) } : {}),
+    ...(values.taskName ? { taskName: values.taskName } : {}),
+    ...(values.description ? { description: values.description } : {}),
+    intervalDays: requireInterval(values),
+    ...(values.reminderDaysBefore ? { reminderDaysBefore: Number(values.reminderDaysBefore) } : {}),
     ...(values.lastMaintenanceAt ? { lastMaintenanceAt: toIso(values.lastMaintenanceAt) } : {}),
     ...(values.nextMaintenanceAt ? { nextMaintenanceAt: toIso(values.nextMaintenanceAt) } : {}),
   };
 }
 
-/** Only changed fields are sent, so the API never recalculates a due date without reason. */
+/**
+ * Only changed fields are sent, so the API never recalculates a due date without reason. The part
+ * is never sent: the API does not accept it on update.
+ */
 export function toUpdateScheduleRequest(
   values: MaintenanceScheduleFormValues,
   initial: MaintenanceScheduleFormInput,
 ): UpdateMaintenanceScheduleRequest {
   const request: UpdateMaintenanceScheduleRequest = {};
-  if (values.intervalDays !== initial.intervalDays) request.intervalDays = Number(values.intervalDays);
-  if (values.reminderDaysBefore !== initial.reminderDaysBefore) {
+  // An emptied part-task name keeps the current one: the API only defaults it on create.
+  if (values.taskName && values.taskName !== initial.taskName.trim()) request.taskName = values.taskName;
+  if (values.description !== initial.description.trim()) request.description = values.description || null;
+  const interval = requireInterval(values);
+  if (interval !== resolveIntervalDays(initial)) request.intervalDays = interval;
+  if (values.reminderDaysBefore && values.reminderDaysBefore !== initial.reminderDaysBefore) {
     request.reminderDaysBefore = Number(values.reminderDaysBefore);
   }
   if (values.lastMaintenanceAt !== initial.lastMaintenanceAt) {
@@ -125,48 +211,71 @@ export function hasScheduleChanges(request: UpdateMaintenanceScheduleRequest): b
   return Object.keys(request).length > 0;
 }
 
-/** Planning a maintenance: the API defaults the date to the schedule's due date. */
+/** Planning a maintenance: the API defaults the date to the task's due date, or now for one-off work. */
 export const maintenanceEventFormSchema = z.object({
   scheduledFor: z.string(),
+  /** One-off work only: the part worked on, or empty for the whole machine. */
+  machinePartId: z.string(),
   notes: optionalText({ label: 'Notes', max: 2000, multiline: true }),
 });
 
 export type MaintenanceEventFormInput = z.input<typeof maintenanceEventFormSchema>;
 export type MaintenanceEventFormValues = z.output<typeof maintenanceEventFormSchema>;
 
-export function maintenanceEventFormDefaults(schedule?: MaintenanceSchedule | null): MaintenanceEventFormInput {
-  return { scheduledFor: schedule ? toDateTimeLocalValue(schedule.nextMaintenanceAt) : '', notes: '' };
+export function maintenanceEventFormDefaults(
+  schedule?: MaintenanceSchedule | null,
+  defaults: { machinePartId?: number } = {},
+): MaintenanceEventFormInput {
+  return {
+    scheduledFor: schedule ? toDateTimeLocalValue(schedule.nextMaintenanceAt) : '',
+    machinePartId: defaults.machinePartId ? String(defaults.machinePartId) : '',
+    notes: '',
+  };
 }
 
+/** What a new maintenance event is for: one task (planned work), or a machine or part (one-off work). */
+export type MaintenanceEventTarget =
+  | { kind: 'task'; maintenanceScheduleId: number }
+  | { kind: 'one-off'; machineId: number };
+
+/**
+ * Planned work sends only the task: the API takes the machine and part from it, and refuses a task
+ * sent together with a machine or part. One-off work sends the machine and, optionally, the part.
+ */
 export function toCreateEventRequest(
-  values: MaintenanceEventFormValues,
-  machineId: number,
+  values: Partial<MaintenanceEventFormValues>,
+  target: MaintenanceEventTarget,
 ): CreateMaintenanceEventRequest {
-  const notes = emptyToUndefined(values.notes);
-  return {
-    machineId,
+  const notes = emptyToUndefined(values.notes ?? '');
+  const optional = {
     ...(values.scheduledFor ? { scheduledFor: toIso(values.scheduledFor) } : {}),
     ...(notes ? { notes } : {}),
+  };
+  if (target.kind === 'task') return { maintenanceScheduleId: target.maintenanceScheduleId, ...optional };
+  return {
+    machineId: target.machineId,
+    ...(values.machinePartId ? { machinePartId: Number(values.machinePartId) } : {}),
+    ...optional,
   };
 }
 
 export const startMaintenanceFormSchema = z.object({
   notes: optionalText({ label: 'Notes', max: 2000, multiline: true }),
-  putMachineUnderMaintenance: z.boolean(),
+  putUnderMaintenance: z.boolean(),
 });
 
 export type StartMaintenanceFormValues = z.output<typeof startMaintenanceFormSchema>;
 
 export function toStartEventRequest(values: StartMaintenanceFormValues): StartMaintenanceEventRequest {
   const notes = emptyToUndefined(values.notes);
-  return { putMachineUnderMaintenance: values.putMachineUnderMaintenance, ...(notes ? { notes } : {}) };
+  return { putUnderMaintenance: values.putUnderMaintenance, ...(notes ? { notes } : {}) };
 }
 
 /** Completion starts the next cycle, so the time recorded here matters. */
 export const completeMaintenanceFormSchema = z.object({
   completedAt: z.string(),
   notes: optionalText({ label: 'Notes', max: 2000, multiline: true }),
-  releaseMachine: z.boolean(),
+  releaseOnComplete: z.boolean(),
 });
 
 export type CompleteMaintenanceFormInput = z.input<typeof completeMaintenanceFormSchema>;
@@ -204,7 +313,7 @@ export function completeMaintenanceDefaults(now: Date, event?: MaintenanceEvent)
   const startedAt = event?.startedAt ? Date.parse(event.startedAt) : null;
   const earliest = startedAt === null ? null : Math.ceil(startedAt / MS_PER_MINUTE) * MS_PER_MINUTE;
   const completedAt = earliest !== null && earliest > now.getTime() ? new Date(earliest) : now;
-  return { completedAt: toDateTimeLocalValue(completedAt), notes: '', releaseMachine: true };
+  return { completedAt: toDateTimeLocalValue(completedAt), notes: '', releaseOnComplete: true };
 }
 
 export function toCompleteEventRequest(
@@ -212,7 +321,7 @@ export function toCompleteEventRequest(
 ): CompleteMaintenanceEventRequest {
   const notes = emptyToUndefined(values.notes);
   return {
-    releaseMachine: values.releaseMachine,
+    releaseOnComplete: values.releaseOnComplete,
     ...(values.completedAt ? { completedAt: toIso(values.completedAt) } : {}),
     ...(notes ? { notes } : {}),
   };

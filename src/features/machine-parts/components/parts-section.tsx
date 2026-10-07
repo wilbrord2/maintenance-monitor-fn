@@ -4,6 +4,7 @@ import { Component, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { EmptyState } from '@/components/feedback/empty-state';
+import { MaintenanceStateBadge } from '@/components/status/maintenance-badges';
 import { OperationalImpactBadge, PartStatusBadge } from '@/components/status/part-status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,11 +12,12 @@ import { Card, CardHeader } from '@/components/ui/card';
 import { ChipGroup, type ChipOption } from '@/components/ui/chip-group';
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '@/components/ui/table';
 import { MACHINE_PART_STATUS_CONFIG } from '@/constants/machine-part';
+import { describeDaysUntilDue } from '@/constants/maintenance';
 import { ROUTES } from '@/constants/routes';
 import { Permission } from '@/lib/permissions/permissions';
 import { usePermissions } from '@/lib/permissions/use-permissions';
 import { cn } from '@/lib/utils/cn';
-import { formatRelativeTime } from '@/lib/utils/date';
+import { formatDate, formatRelativeTime } from '@/lib/utils/date';
 import { MACHINE_STATES, type MachineDetail, type MachineState } from '@/types/machine';
 import { type MachinePart } from '@/types/machine-part';
 import { PartFormDialog } from './part-form-dialog';
@@ -49,6 +51,23 @@ function CriticalityTag({ isCritical }: { isCritical: boolean }) {
   );
 }
 
+/** The part's earliest-due active task, as the API picked it. */
+function NextMaintenanceCell({ part }: { part: MachinePart }) {
+  const next = part.nextMaintenance;
+  if (!next) return <span className="text-xs text-muted">No tasks</span>;
+  return (
+    <div className="min-w-0">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <MaintenanceStateBadge state={next.state} size="sm" />
+        <span className="text-xs whitespace-nowrap text-ink-secondary">{formatDate(next.nextMaintenanceAt)}</span>
+      </div>
+      <p className="truncate text-xs text-muted" title={next.taskName}>
+        {next.taskName} · {describeDaysUntilDue(next.daysUntilDue).toLowerCase()}
+      </p>
+    </div>
+  );
+}
+
 function PartsTable({ parts, machine }: { parts: MachinePart[]; machine: MachineDetail }) {
   return (
     <Table>
@@ -59,6 +78,7 @@ function PartsTable({ parts, machine }: { parts: MachinePart[]; machine: Machine
           <TableHeaderCell>Status</TableHeaderCell>
           <TableHeaderCell>Operational impact</TableHeaderCell>
           <TableHeaderCell>Criticality</TableHeaderCell>
+          <TableHeaderCell>Next maintenance</TableHeaderCell>
           <TableHeaderCell>Last update</TableHeaderCell>
           <TableHeaderCell>
             <span className="sr-only">Actions</span>
@@ -90,6 +110,9 @@ function PartsTable({ parts, machine }: { parts: MachinePart[]; machine: Machine
             </TableCell>
             <TableCell>
               <CriticalityTag isCritical={part.isCritical} />
+            </TableCell>
+            <TableCell className="max-w-48">
+              <NextMaintenanceCell part={part} />
             </TableCell>
             <TableCell className="whitespace-nowrap text-xs text-muted">
               {formatRelativeTime(part.updatedAt)}
@@ -127,6 +150,12 @@ function PartCards({ parts, machine }: { parts: MachinePart[]; machine: MachineD
               </Badge>
             )}
           </div>
+          {part.nextMaintenance ? (
+            <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+              <MaintenanceStateBadge state={part.nextMaintenance.state} size="sm" />
+              {part.nextMaintenance.taskName} · due {formatDate(part.nextMaintenance.nextMaintenanceAt)}
+            </p>
+          ) : null}
           <p className="mt-1.5 text-xs text-muted">Updated {formatRelativeTime(part.updatedAt)}</p>
         </li>
       ))}

@@ -68,12 +68,16 @@ export interface MachinePartUpdatedEvent {
   timestamp: string;
 }
 
-/** Payload of `maintenance.reminder`: preventive maintenance is approaching, due or overdue. */
+/** Payload of `maintenance.reminder`: one task is approaching, due or overdue. */
 export interface MaintenanceReminderEvent {
   scheduleId: number;
   machineId: number;
   machineName: string;
   serialNumber: string;
+  /** Null for a machine-wide task. */
+  machinePartId: number | null;
+  partName: string | null;
+  taskName: string;
   state: MaintenanceScheduleState;
   nextMaintenanceAt: string;
   daysUntilDue: number;
@@ -86,6 +90,10 @@ export interface MaintenanceCompletedEvent {
   eventId: number;
   machineId: number;
   machineName: string;
+  machinePartId: number | null;
+  partName: string | null;
+  /** Null for one-off work. */
+  taskName: string | null;
   completedAt: string;
   nextMaintenanceAt: string | null;
   performedBy: { id: number; name: string } | null;

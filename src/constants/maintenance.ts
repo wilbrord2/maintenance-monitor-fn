@@ -16,6 +16,7 @@ import {
   MAINTENANCE_SCHEDULE_STATES,
   MaintenanceEventStatus,
   MaintenanceScheduleState,
+  type MaintenanceScheduleScope,
 } from '@/types/maintenance';
 
 export interface MaintenanceStateConfig {
@@ -135,4 +136,77 @@ export function describeDaysUntilDue(daysUntilDue: number): string {
   if (daysUntilDue === -1) return '1 day late';
   if (daysUntilDue < 0) return `${Math.abs(daysUntilDue)} days late`;
   return `In ${daysUntilDue} days`;
+}
+
+/** The plant's three standard frequencies; any other interval is shown as "Every N days". */
+export type MaintenanceFrequency = 'daily' | 'weekly' | 'monthly';
+
+export const MAINTENANCE_FREQUENCY_DAYS: Readonly<Record<MaintenanceFrequency, number>> = {
+  daily: 1,
+  weekly: 7,
+  monthly: 30,
+};
+
+export const MAINTENANCE_FREQUENCY_OPTIONS: readonly { value: MaintenanceFrequency; label: string }[] = [
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+];
+
+export function frequencyForInterval(intervalDays: number): MaintenanceFrequency | null {
+  return MAINTENANCE_FREQUENCY_OPTIONS.find((option) => MAINTENANCE_FREQUENCY_DAYS[option.value] === intervalDays)?.value ?? null;
+}
+
+/** "Daily", "Weekly", "Monthly", or "Every N days" for any other interval. */
+export function describeInterval(intervalDays: number): string {
+  const frequency = frequencyForInterval(intervalDays);
+  if (frequency) return MAINTENANCE_FREQUENCY_OPTIONS.find((option) => option.value === frequency)?.label ?? '';
+  return `Every ${intervalDays} days`;
+}
+
+export const MAINTENANCE_SCOPE_LABELS: Readonly<Record<MaintenanceScheduleScope, string>> = {
+  machine: 'Machine-wide',
+  part: 'Part inspections',
+};
+
+export const MAINTENANCE_SCOPE_OPTIONS = (Object.keys(MAINTENANCE_SCOPE_LABELS) as MaintenanceScheduleScope[]).map(
+  (scope) => ({ value: scope, label: MAINTENANCE_SCOPE_LABELS[scope] }),
+);
+
+/**
+ * What a maintenance is about, for messages: the task and the part it inspects. A part task is
+ * named after its part by default, so the part is not repeated then. Without a part, the task alone.
+ */
+export function describeMaintenanceSubject(subject: { taskName: string | null; partName: string | null }): string {
+  const { taskName, partName } = subject;
+  if (!partName) return taskName ?? 'Maintenance';
+  if (!taskName || taskName === partName) return partName;
+  return `${taskName} – ${partName}`;
+}
+
+/** e.g. "is overdue by 2 days", "is due today", "is due in 3 days", from the API's own count. */
+export function describeDuePhrase(daysUntilDue: number): string {
+  if (daysUntilDue < 0) {
+    const late = Math.abs(daysUntilDue);
+    return `is overdue by ${late} ${late === 1 ? 'day' : 'days'}`;
+  }
+  if (daysUntilDue === 0) return 'is due today';
+  if (daysUntilDue === 1) return 'is due tomorrow';
+  return `is due in ${daysUntilDue} days`;
+}
+
+/** "Cutting head (Laser Cutting System 1)", or the machine alone when neither task nor part is known. */
+export function describeMaintenanceTarget(target: { taskName: string | null; partName: string | null; machineName: string }): string {
+  if (!target.taskName && !target.partName) return target.machineName;
+  return `${describeMaintenanceSubject(target)} (${target.machineName})`;
+}
+
+/** e.g. "Cutting head (Laser Cutting System 1 - CNC Laser Cutting Machine) is overdue by 2 days". */
+export function describeMaintenanceReminder(reminder: {
+  taskName: string;
+  partName: string | null;
+  machineName: string;
+  daysUntilDue: number;
+}): string {
+  return `${describeMaintenanceTarget(reminder)} ${describeDuePhrase(reminder.daysUntilDue)}`;
 }

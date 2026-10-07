@@ -85,7 +85,7 @@ describe('Machine detail', () => {
     arrange(
       makeMachineDetail({
         operationalStatus: MachineOperationalStatus.OPERATING,
-        maintenance: makeSchedule({ state: MaintenanceScheduleState.OVERDUE, daysUntilDue: -3 }),
+        maintenanceSchedules: [makeSchedule({ state: MaintenanceScheduleState.OVERDUE, daysUntilDue: -3 })],
       }),
     );
 

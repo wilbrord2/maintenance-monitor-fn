@@ -119,6 +119,9 @@ export function isMaintenanceReminderEvent(value: unknown): value is Maintenance
     typeof event.machineId === 'number' &&
     typeof event.machineName === 'string' &&
     typeof event.serialNumber === 'string' &&
+    (event.machinePartId === null || typeof event.machinePartId === 'number') &&
+    (event.partName === null || typeof event.partName === 'string') &&
+    typeof event.taskName === 'string' &&
     isMaintenanceScheduleState(event.state) &&
     typeof event.nextMaintenanceAt === 'string' &&
     typeof event.daysUntilDue === 'number' &&
@@ -135,6 +138,9 @@ export function isMaintenanceCompletedEvent(value: unknown): value is Maintenanc
     typeof event.eventId === 'number' &&
     typeof event.machineId === 'number' &&
     typeof event.machineName === 'string' &&
+    (event.machinePartId === null || typeof event.machinePartId === 'number') &&
+    (event.partName === null || typeof event.partName === 'string') &&
+    (event.taskName === null || typeof event.taskName === 'string') &&
     typeof event.completedAt === 'string' &&
     typeof event.timestamp === 'string' &&
     (event.scheduleId === null || typeof event.scheduleId === 'number') &&

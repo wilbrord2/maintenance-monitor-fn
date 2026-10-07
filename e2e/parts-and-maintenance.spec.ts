@@ -8,7 +8,9 @@ import {
   createSchedule,
   e2eEnv,
   getMachine,
+  getPart,
   getSchedule,
+  listSchedules,
   uniqueSuffix,
 } from './support/api';
 import { signInAndWaitForDashboard } from './support/ui';
@@ -120,86 +122,126 @@ test.describe('machine parts', () => {
 });
 
 test.describe('preventive maintenance', () => {
-  test('an administrator schedules maintenance and the server owns the due date', async ({ page }) => {
+  test('an administrator adds a machine-wide task and a part task', async ({ page }) => {
     const token = await adminToken();
     const machine = await createMachine(token);
+    const part = await createPart(token, machine.id, { name: `Cutting head ${uniqueSuffix()}` });
     await signInAndWaitForDashboard(page, e2eEnv.adminEmail, e2eEnv.adminPassword);
     await page.goto(`/dashboard/machines/${machine.id}`);
 
-    await expect(page.getByText('No preventive maintenance schedule')).toBeVisible();
-    await page.getByRole('button', { name: 'Set up schedule' }).click();
+    await expect(page.getByText('No maintenance tasks')).toBeVisible();
+    await page.getByRole('button', { name: 'Add task' }).first().click();
 
-    const dialog = page.getByRole('dialog', { name: 'Set up preventive maintenance' });
-    await dialog.getByLabel('Maintenance interval (days)').fill('0');
-    await dialog.getByRole('button', { name: 'Create schedule' }).click();
-    await expect(dialog.getByText('The interval must be at least 1 day')).toBeVisible();
-
-    await dialog.getByLabel('Maintenance interval (days)').fill('20');
-    await dialog.getByLabel('Remind this many days before').fill('30');
-    await dialog.getByRole('button', { name: 'Create schedule' }).click();
-    await expect(dialog.getByText(/reminder can't start earlier/)).toBeVisible();
-
-    await dialog.getByLabel('Remind this many days before').fill('5');
-    await dialog.getByRole('button', { name: 'Create schedule' }).click();
+    // Whole machine: a name is required.
+    let dialog = page.getByRole('dialog', { name: 'Add maintenance task' });
+    await dialog.getByRole('button', { name: 'Add task' }).click();
+    await expect(dialog.getByText('Enter a name for this machine-wide task')).toBeVisible();
+    await dialog.getByLabel('Task name').fill('External cleaning');
+    await dialog.getByLabel('Frequency').selectOption('daily');
+    await dialog.getByRole('button', { name: 'Add task' }).click();
     await expect(dialog).toBeHidden();
 
-    const schedule = await getSchedule(token, machine.id);
-    expect(schedule.intervalDays).toBe(20);
-    await expect(page.getByText('Every 20 days')).toBeVisible();
+    const tasks = page.getByRole('table', { name: `Maintenance tasks of ${machine.name}` });
+    await expect(tasks.locator('tr', { hasText: 'External cleaning' }).getByText('Daily')).toBeVisible();
 
-    // Overdue or not, maintenance state never changes the machine's operational status.
+    // Part: the name follows the part, and the reminder must fit in the interval.
+    await page.getByRole('button', { name: 'Add task' }).first().click();
+    dialog = page.getByRole('dialog', { name: 'Add maintenance task' });
+    await dialog.getByRole('radio', { name: 'Part' }).click();
+    await dialog.getByLabel('Part').selectOption(String(part.id));
+    await expect(dialog.getByLabel('Task name')).toHaveValue(part.name);
+    await dialog.getByLabel('Frequency').selectOption('weekly');
+    await dialog.getByLabel('Remind this many days before').fill('10');
+    await dialog.getByRole('button', { name: 'Add task' }).click();
+    await expect(dialog.getByText(/reminder can't start earlier/)).toBeVisible();
+    await dialog.getByLabel('Remind this many days before').fill('2');
+    await dialog.getByRole('button', { name: 'Add task' }).click();
+    await expect(dialog).toBeHidden();
+
+    await expect(tasks.getByText(`Part inspections · ${part.name}`)).toBeVisible();
+    const schedules = await listSchedules(token, machine.id);
+    expect(schedules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ taskName: 'External cleaning', machinePartId: null, intervalDays: 1 }),
+        expect.objectContaining({ taskName: part.name, machinePartId: part.id, intervalDays: 7, reminderDaysBefore: 2 }),
+      ]),
+    );
+
+    // Deactivating a task keeps it, greyed out behind the "All" filter.
+    await tasks.getByRole('checkbox', { name: 'External cleaning active' }).click();
+    await expect(tasks.locator('tr', { hasText: 'External cleaning' })).toHaveCount(0);
+    await page.getByRole('radio', { name: /All \(1 inactive\)/ }).click();
+    await expect(tasks.locator('tr', { hasText: 'External cleaning' }).getByText('Inactive')).toBeVisible();
+
+    // Maintenance tasks never change the machine's operational status.
     expect((await getMachine(token, machine.id)).operationalStatus).toBe('OPERATING');
   });
 
-  test('an overdue machine is listed for attention while still operating', async ({ page }) => {
+  test('an overdue part task is listed with its machine and part while the machine keeps operating', async ({ page }) => {
     const token = await adminToken();
     const machine = await createMachine(token);
+    const part = await createPart(token, machine.id, { name: `Nozzle ${uniqueSuffix()}` });
     const past = new Date(Date.now() - 3 * 86_400_000).toISOString();
-    await createSchedule(token, machine.id, { intervalDays: 20, reminderDaysBefore: 5, nextMaintenanceAt: past });
+    await createSchedule(token, machine.id, { machinePartId: part.id, taskName: 'Nozzle inspection', intervalDays: 7, nextMaintenanceAt: past });
 
     await signInAndWaitForDashboard(page, e2eEnv.adminEmail, e2eEnv.adminPassword);
-    await page.goto('/dashboard/maintenance');
+    await page.goto(`/dashboard/maintenance?state=OVERDUE&machineId=${machine.id}`);
 
     const row = page.locator('tr', { hasText: machine.name });
+    await expect(row.getByText('Nozzle inspection')).toBeVisible();
+    await expect(row.getByText(part.name)).toBeVisible();
     await expect(row.getByText('Overdue', { exact: true })).toBeVisible();
     await expect(row.getByText('3 days late')).toBeVisible();
+
+    // Machine-wide only: the part task drops out.
+    await page.getByLabel('Task type').selectOption('machine');
+    await expect(page.locator('tr', { hasText: 'Nozzle inspection' })).toHaveCount(0);
 
     await page.goto(`/dashboard/machines/${machine.id}`);
     await expect(page.getByText('Machine status').locator('..').getByText('Operating', { exact: true })).toBeVisible();
     expect((await getMachine(token, machine.id)).operationalStatus).toBe('OPERATING');
   });
 
-  test('completing maintenance starts the next cycle from the completion time', async ({ page }) => {
+  test('a part task puts the part under maintenance and completing it starts the next cycle', async ({ page }) => {
     const token = await adminToken();
     const machine = await createMachine(token);
-    await createSchedule(token, machine.id, {
-      intervalDays: 20,
-      reminderDaysBefore: 5,
+    const part = await createPart(token, machine.id, { name: `Cutting head ${uniqueSuffix()}` });
+    const task = await createSchedule(token, machine.id, {
+      machinePartId: part.id,
+      intervalDays: 7,
       nextMaintenanceAt: new Date(Date.now() - 86_400_000).toISOString(),
     });
 
     await signInAndWaitForDashboard(page, e2eEnv.adminEmail, e2eEnv.adminPassword);
     await page.goto(`/dashboard/machines/${machine.id}`);
+    const tasks = page.getByRole('table', { name: `Maintenance tasks of ${machine.name}` });
+    const parts = page.getByRole('table', { name: `Parts of ${machine.name}` });
 
-    await page.getByRole('button', { name: 'Plan maintenance' }).click();
-    const planDialog = page.getByRole('dialog', { name: 'Plan maintenance' });
-    await planDialog.getByRole('button', { name: 'Plan maintenance' }).click();
-    await expect(planDialog).toBeHidden();
-
-    await page.getByRole('button', { name: 'Start maintenance' }).click();
+    await tasks.getByRole('button', { name: `Start maintenance: ${task.taskName}` }).click();
     const startDialog = page.getByRole('dialog', { name: 'Start maintenance' });
+    await expect(startDialog.getByLabel(/Put part under maintenance/)).toBeChecked();
     await startDialog.getByRole('button', { name: 'Start maintenance' }).click();
     await expect(startDialog).toBeHidden();
-    await expect(page.getByText('Maintenance in progress')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Complete maintenance' }).click();
+    // The part changes; the machine's status is re-derived from it by the server and refetched.
+    await expect(parts.locator('tr', { hasText: part.name }).getByText('Under maintenance', { exact: true })).toBeVisible();
+    expect((await getPart(token, machine.id, part.id)).status).toBe('UNDER_MAINTENANCE');
+    const during = await getMachine(token, machine.id);
+    expect(during.status).toBe('UNDER_MAINTENANCE');
+    expect(during.systemStatus).toBe('ACTIVE');
+
+    await tasks.getByRole('button', { name: `Complete maintenance: ${task.taskName}` }).click();
     const completeDialog = page.getByRole('dialog', { name: 'Complete maintenance' });
+    await expect(completeDialog.getByLabel(/Return it to active when completed/)).toBeChecked();
     await completeDialog.getByRole('button', { name: 'Complete maintenance' }).click();
     await expect(completeDialog).toBeHidden();
 
-    // The API rolls the cycle forward from the actual completion, not from the planned date.
-    const schedule = await getSchedule(token, machine.id);
-    const expectedNext = new Date(Date.parse(schedule.lastMaintenanceAt ?? '') + 20 * 86_400_000);
+    await expect(parts.locator('tr', { hasText: part.name }).getByText('Active', { exact: true })).toBeVisible();
+    expect((await getMachine(token, machine.id)).status).toBe('ACTIVE');
+
+    // The API rolls the task forward from the actual completion, not from the planned date.
+    const schedule = await getSchedule(token, task.id);
+    const expectedNext = new Date(Date.parse(schedule.lastMaintenanceAt ?? '') + 7 * 86_400_000);
     expect(Math.abs(Date.parse(schedule.nextMaintenanceAt) - expectedNext.getTime())).toBeLessThan(60_000);
     expect(Date.parse(schedule.nextMaintenanceAt)).toBeGreaterThan(Date.now());
   });

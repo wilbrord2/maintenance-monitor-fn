@@ -23,6 +23,7 @@ import { useMaintenanceEvent } from '../api/queries';
 import {
   CancelMaintenanceDialog,
   CompleteMaintenanceDialog,
+  describeEventTarget,
   StartMaintenanceDialog,
 } from './maintenance-event-dialogs';
 
@@ -63,7 +64,8 @@ export function MaintenanceEventDetailView({ eventId }: { eventId: number }) {
   }
 
   const event = eventQuery.data;
-  const machineName = event.machine?.name ?? `Machine #${event.id}`;
+  const machineName = event.machine?.name ?? 'Unknown machine';
+  const title = event.taskName ?? (event.machinePart ? `One-off — ${event.machinePart.name}` : 'One-off maintenance');
   const config = MAINTENANCE_EVENT_STATUS_CONFIG[event.status];
   const canRun = can(Permission.RUN_MAINTENANCE);
   const isScheduled = event.status === MaintenanceEventStatus.SCHEDULED;
@@ -72,8 +74,8 @@ export function MaintenanceEventDetailView({ eventId }: { eventId: number }) {
   return (
     <>
       <PageHeader
-        breadcrumbs={[{ label: 'Maintenance', href: ROUTES.maintenance }, { label: machineName }]}
-        title={`Maintenance — ${machineName}`}
+        breadcrumbs={[{ label: 'Maintenance', href: ROUTES.maintenance }, { label: describeEventTarget(event) }]}
+        title={`${title} — ${machineName}`}
         meta={<MaintenanceEventStatusBadge status={event.status} />}
         description={`Scheduled for ${formatDate(event.scheduledFor)}`}
         actions={
@@ -114,6 +116,17 @@ export function MaintenanceEventDetailView({ eventId }: { eventId: number }) {
                     <span className="text-muted">Unknown machine</span>
                   ),
                 },
+                {
+                  label: 'Part',
+                  value:
+                    event.machinePart && event.machine ? (
+                      <Link href={ROUTES.machinePart(event.machine.id, event.machinePart.id)} className="hover:underline">
+                        {event.machinePart.name} ({event.machinePart.partCode})
+                      </Link>
+                    ) : (
+                      <span className="text-muted">Whole machine</span>
+                    ),
+                },
                 { label: 'Status', value: <MaintenanceEventStatusBadge status={event.status} size="sm" /> },
                 { label: 'Scheduled for', value: formatDate(event.scheduledFor) },
                 {
@@ -133,15 +146,15 @@ export function MaintenanceEventDetailView({ eventId }: { eventId: number }) {
                   value: event.performedBy?.fullName ?? <span className="text-muted">Not assigned</span>,
                 },
                 {
-                  label: 'Recurring schedule',
+                  label: 'Task',
                   value: event.maintenanceScheduleId ? (
-                    <span>Linked to the machine&apos;s schedule</span>
+                    <span>{event.taskName ?? `Task #${event.maintenanceScheduleId}`}</span>
                   ) : (
-                    <span className="text-muted">One-off maintenance</span>
+                    <span className="text-muted">One-off maintenance, not linked to a task</span>
                   ),
                 },
                 {
-                  label: 'Machine log',
+                  label: event.machinePartId !== null ? 'Part log' : 'Machine log',
                   value: event.machineLogId ? (
                     <Link href={ROUTES.log(event.machineLogId)} className="hover:underline">
                       Log #{event.machineLogId}

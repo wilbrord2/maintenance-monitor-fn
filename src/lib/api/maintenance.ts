@@ -3,6 +3,7 @@ import {
   type CompleteMaintenanceEventRequest,
   type CreateMaintenanceEventRequest,
   type CreateMaintenanceScheduleRequest,
+  type ListMachineSchedulesParams,
   type ListMaintenanceEventsParams,
   type MaintenanceEvent,
   type MaintenanceSchedule,
@@ -18,18 +19,25 @@ import { getData, getPage, patchData, postData, type RequestOptions } from './cl
  * are all calculated by the API; this module only carries them.
  */
 export const maintenanceApi = {
-  getSchedule: (machineId: number, options?: RequestOptions) =>
-    getData<MaintenanceSchedule>(`/machines/${machineId}/maintenance`, undefined, options),
+  /**
+   * Every task of a machine, not paginated: machine-wide tasks first, then part tasks grouped by
+   * part, each by due date.
+   */
+  listSchedules: (machineId: number, params: ListMachineSchedulesParams = {}, options?: RequestOptions) =>
+    getData<MaintenanceSchedule[]>(`/machines/${machineId}/maintenance-schedules`, params, options),
 
-  /** ADMIN only. One schedule per machine. */
+  getSchedule: (id: number, options?: RequestOptions) =>
+    getData<MaintenanceSchedule>(`/maintenance-schedules/${id}`, undefined, options),
+
+  /** ADMIN only. A part task, or a machine-wide one when `machinePartId` is omitted. */
   createSchedule: (machineId: number, body: CreateMaintenanceScheduleRequest) =>
-    postData<MaintenanceSchedule>(`/machines/${machineId}/maintenance`, body),
+    postData<MaintenanceSchedule>(`/machines/${machineId}/maintenance-schedules`, body),
 
-  /** ADMIN only. */
-  updateSchedule: (machineId: number, body: UpdateMaintenanceScheduleRequest) =>
-    patchData<MaintenanceSchedule>(`/machines/${machineId}/maintenance`, body),
+  /** ADMIN only. There is no delete: `isActive: false` stops a task. */
+  updateSchedule: (id: number, body: UpdateMaintenanceScheduleRequest) =>
+    patchData<MaintenanceSchedule>(`/maintenance-schedules/${id}`, body),
 
-  /** Schedules inside their reminder window. */
+  /** Tasks inside their reminder window. */
   upcoming: (params: MaintenanceScheduleListParams, options?: RequestOptions) =>
     getPage<MaintenanceSchedule>('/maintenance/upcoming', params, options),
 
@@ -45,6 +53,7 @@ export const maintenanceApi = {
   getEvent: (id: number, options?: RequestOptions) =>
     getData<MaintenanceEvent>(`/maintenance-events/${id}`, undefined, options),
 
+  /** Planned work sends only `maintenanceScheduleId`; one-off work sends the machine and optional part. */
   createEvent: (body: CreateMaintenanceEventRequest) =>
     postData<MaintenanceEvent>('/maintenance-events', body),
 

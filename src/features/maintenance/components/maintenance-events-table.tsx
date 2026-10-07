@@ -15,6 +15,24 @@ import { formatDate, formatDateTime, toIsoString } from '@/lib/utils/date';
 import { type PaginatedResponse } from '@/types/api';
 import { type MaintenanceEvent } from '@/types/maintenance';
 
+/** The task carried out (or "One-off") and the part worked on, if any. */
+function EventSubject({ event }: { event: MaintenanceEvent }) {
+  return (
+    <div className="min-w-0">
+      <p className={cn('truncate', event.taskName ? 'text-ink' : 'text-muted')}>{event.taskName ?? 'One-off maintenance'}</p>
+      <p className="truncate text-xs text-muted">
+        {event.machinePart ? (
+          <>
+            {event.machinePart.name} <span className="font-mono">{event.machinePart.partCode}</span>
+          </>
+        ) : (
+          'Whole machine'
+        )}
+      </p>
+    </div>
+  );
+}
+
 export interface MaintenanceEventsTableProps {
   query: {
     data: PaginatedResponse<MaintenanceEvent> | undefined;
@@ -41,7 +59,7 @@ export function MaintenanceEventsTable({
 }: MaintenanceEventsTableProps) {
   const items = query.data?.items ?? [];
 
-  if (query.isPending) return <TableSkeleton rows={8} columns={6} />;
+  if (query.isPending) return <TableSkeleton rows={8} columns={7} />;
   if (query.isError && !query.data) {
     return <ErrorState error={query.error} onRetry={() => void query.refetch()} isRetrying={query.isFetching} />;
   }
@@ -74,6 +92,7 @@ export function MaintenanceEventsTable({
             <TableHead>
               <tr>
                 <TableHeaderCell>Machine</TableHeaderCell>
+                <TableHeaderCell>Task / part</TableHeaderCell>
                 <TableHeaderCell>Scheduled</TableHeaderCell>
                 <TableHeaderCell>Started</TableHeaderCell>
                 <TableHeaderCell>Completed</TableHeaderCell>
@@ -98,6 +117,9 @@ export function MaintenanceEventsTable({
                     {event.machine ? (
                       <p className="truncate font-mono text-xs text-muted">{event.machine.serialNumber}</p>
                     ) : null}
+                  </TableCell>
+                  <TableCell className="max-w-56">
+                    <EventSubject event={event} />
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
                     <time dateTime={toIsoString(event.scheduledFor)}>{formatDate(event.scheduledFor)}</time>
@@ -134,6 +156,10 @@ export function MaintenanceEventsTable({
                   </p>
                   <MaintenanceEventStatusBadge status={event.status} size="sm" />
                 </div>
+                <p className="mt-0.5 truncate text-xs text-ink-secondary">
+                  {event.taskName ?? 'One-off maintenance'}
+                  {event.machinePart && event.machinePart.name !== event.taskName ? ` · ${event.machinePart.name}` : ''}
+                </p>
                 <p className="mt-1 text-xs text-muted">
                   Scheduled {formatDate(event.scheduledFor)}
                   {event.completedAt ? ` · completed ${formatDateTime(event.completedAt)}` : ''}

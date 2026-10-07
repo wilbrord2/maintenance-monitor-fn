@@ -3,7 +3,11 @@ import { type ListAuditLogsParams } from '@/types/audit';
 import { type ListMachinesParams } from '@/types/machine';
 import { type ListMachineLogsParams, type MachineHistoryParams } from '@/types/machine-log';
 import { type ListMachinePartsParams, type MachinePartHistoryParams } from '@/types/machine-part';
-import { type ListMaintenanceEventsParams, type MaintenanceScheduleListParams } from '@/types/maintenance';
+import {
+  type ListMachineSchedulesParams,
+  type ListMaintenanceEventsParams,
+  type MaintenanceScheduleListParams,
+} from '@/types/maintenance';
 import { type ListUsersParams } from '@/types/user';
 
 /**
@@ -35,7 +39,11 @@ export const queryKeys = {
   maintenance: {
     all: ['maintenance'] as const,
     schedules: () => ['maintenance', 'schedule'] as const,
-    schedule: (machineId: number) => ['maintenance', 'schedule', machineId] as const,
+    schedule: (id: number) => ['maintenance', 'schedule', id] as const,
+    /** A machine's tasks; nested under the machine so a detail refresh covers them. */
+    machineSchedules: (machineId: number) => ['machines', 'detail', machineId, 'maintenance-schedules'] as const,
+    machineScheduleList: (machineId: number, params: ListMachineSchedulesParams) =>
+      ['machines', 'detail', machineId, 'maintenance-schedules', params] as const,
     boards: () => ['maintenance', 'board'] as const,
     board: (state: 'upcoming' | 'due' | 'overdue', params: MaintenanceScheduleListParams) =>
       ['maintenance', 'board', state, params] as const,

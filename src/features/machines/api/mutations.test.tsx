@@ -24,7 +24,7 @@ function setup() {
 describe('machine mutations', () => {
   it('keeps the parts and maintenance plan the update response does not carry', async () => {
     const { queryClient, wrapper } = setup();
-    const detail = makeMachineDetail({ id: 5, partDetails: [makePart()], maintenance: makeSchedule() });
+    const detail = makeMachineDetail({ id: 5, partDetails: [makePart()], maintenanceSchedules: [makeSchedule()] });
     queryClient.setQueryData(queryKeys.machines.detail(5), detail);
     vi.mocked(machinesApi.update).mockResolvedValue({ data: makeMachine({ id: 5, name: 'Press One' }), message: 'Saved' });
 
@@ -35,7 +35,7 @@ describe('machine mutations', () => {
     const cached = queryClient.getQueryData<MachineDetail>(queryKeys.machines.detail(5));
     expect(cached?.name).toBe('Press One');
     expect(cached?.partDetails).toHaveLength(1);
-    expect(cached?.maintenance).not.toBeNull();
+    expect(cached?.maintenanceSchedules).toHaveLength(1);
   });
 
   it('does not cache a partial machine as if it were the full detail', async () => {

@@ -11,7 +11,12 @@ import { MaintenanceStateBadge } from '@/components/status/maintenance-badges';
 import { OperationalStatusBadge } from '@/components/status/operational-status-badge';
 import { OperationalImpactBadge, PartStatusBadge } from '@/components/status/part-status-badge';
 import { Button } from '@/components/ui/button';
-import { describeDaysUntilDue, MAINTENANCE_COMPLETED_ICON } from '@/constants/maintenance';
+import {
+  describeDaysUntilDue,
+  describeMaintenanceReminder,
+  describeMaintenanceTarget,
+  MAINTENANCE_COMPLETED_ICON,
+} from '@/constants/maintenance';
 import { ROUTES } from '@/constants/routes';
 import { formatDate, formatRelativeTime, toIsoString } from '@/lib/utils/date';
 import { type RealtimeNotification, useRealtimeStore } from '@/stores/realtime-store';
@@ -82,17 +87,20 @@ function describe(notification: RealtimeNotification, actor: string): Notificati
     case 'maintenance-reminder': {
       const { event } = notification;
       return {
-        title: event.machineName,
-        href: ROUTES.machine(event.machineId),
+        title: describeMaintenanceReminder(event),
+        href:
+          event.machinePartId !== null
+            ? ROUTES.machinePart(event.machineId, event.machinePartId)
+            : `${ROUTES.machine(event.machineId)}#maintenance`,
         body: <MaintenanceStateBadge state={event.state} size="sm" />,
-        caption: `Preventive maintenance ${describeDaysUntilDue(event.daysUntilDue).toLowerCase()} · due ${formatDate(event.nextMaintenanceAt)}`,
+        caption: `Due ${formatDate(event.nextMaintenanceAt)} (${describeDaysUntilDue(event.daysUntilDue).toLowerCase()})`,
       };
     }
     case 'maintenance-completed': {
       const { event } = notification;
       const Icon = MAINTENANCE_COMPLETED_ICON;
       return {
-        title: event.machineName,
+        title: describeMaintenanceTarget(event),
         href: ROUTES.maintenanceEvent(event.eventId),
         body: (
           <span className="inline-flex items-center gap-1.5 text-[13px] text-positive-ink">
@@ -101,8 +109,8 @@ function describe(notification: RealtimeNotification, actor: string): Notificati
           </span>
         ),
         caption: event.nextMaintenanceAt
-          ? `Next maintenance ${formatDate(event.nextMaintenanceAt)}`
-          : 'No recurring schedule',
+          ? `${actor} · next due ${formatDate(event.nextMaintenanceAt)}`
+          : `${actor} · one-off maintenance`,
       };
     }
   }

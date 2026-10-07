@@ -103,10 +103,19 @@ describe('status board connection', () => {
 
     expect(isMaintenanceReminderEvent(makeReminderEvent())).toBe(true);
     expect(isMaintenanceReminderEvent({ ...makeReminderEvent(), state: 'LATE' })).toBe(false);
+    // Machine-wide tasks have no part; every reminder names its task.
+    expect(isMaintenanceReminderEvent(makeReminderEvent({ machinePartId: null, partName: null, taskName: 'External cleaning' }))).toBe(true);
+    const { taskName: _taskName, ...withoutTask } = makeReminderEvent();
+    expect(isMaintenanceReminderEvent(withoutTask)).toBe(false);
 
     expect(isMaintenanceCompletedEvent(makeMaintenanceCompletedEvent())).toBe(true);
     expect(isMaintenanceCompletedEvent({ ...makeMaintenanceCompletedEvent(), nextMaintenanceAt: null })).toBe(true);
     expect(isMaintenanceCompletedEvent({ ...makeMaintenanceCompletedEvent(), completedAt: 5 })).toBe(false);
+    // One-off work has neither task nor schedule.
+    expect(
+      isMaintenanceCompletedEvent(makeMaintenanceCompletedEvent({ scheduleId: null, taskName: null, machinePartId: null, partName: null })),
+    ).toBe(true);
+    expect(isMaintenanceCompletedEvent({ ...makeMaintenanceCompletedEvent(), partName: 7 })).toBe(false);
   });
 
   it('delivers only valid payloads to the application', () => {

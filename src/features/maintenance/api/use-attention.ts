@@ -4,11 +4,11 @@ import { useMaintenanceBoard } from './queries';
 import { indexByMachine, sortByUrgency } from '../lib/attention';
 
 /**
- * The machines whose preventive maintenance needs attention, from the three API listings
- * (approaching, due today and overdue). The API decides which schedule belongs in which list.
+ * The maintenance tasks that need attention, from the three API listings (approaching, due today
+ * and overdue), most urgent first. The API decides which task belongs in which list.
  *
- * Machines whose next service is still far away appear in none of them, which is why callers show
- * "not due soon" rather than inventing a date.
+ * `byMachineId` keeps each machine's most urgent task. Machines whose tasks are all still far away
+ * appear in none of the lists, which is why callers show "not due soon" rather than inventing a date.
  */
 export function useMaintenanceAttention(options: { enabled?: boolean; limit?: number } = {}) {
   const params = { limit: options.limit ?? 50 };

@@ -1,6 +1,7 @@
 import { type PageParams, type SortParams } from './api';
 import { type MachineState } from './machine';
 import { type MachineHistoryParams } from './machine-log';
+import { type MaintenanceScheduleState } from './maintenance';
 
 /**
  * Parts reuse the four workflow statuses of the machine log system; the API shares a single
@@ -22,6 +23,16 @@ export const OPERATIONAL_IMPACTS: readonly OperationalImpact[] = [
   OperationalImpact.NON_BLOCKING,
 ];
 
+/** The part's earliest-due active maintenance task, as the API resolved it. */
+export interface MachinePartNextMaintenance {
+  scheduleId: number;
+  taskName: string;
+  intervalDays: number;
+  nextMaintenanceAt: string;
+  state: MaintenanceScheduleState;
+  daysUntilDue: number;
+}
+
 export interface MachinePart {
   id: number;
   machineId: number;
@@ -37,6 +48,8 @@ export interface MachinePart {
   hasDefect: boolean;
   /** True when this part's current condition is what stops the machine. */
   isBlockingMachine: boolean;
+  /** Null when the part has no active maintenance task. */
+  nextMaintenance: MachinePartNextMaintenance | null;
   createdAt: string;
   updatedAt: string;
 }

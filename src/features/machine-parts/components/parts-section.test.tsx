@@ -7,6 +7,7 @@ import { signInAs, signOutForTest } from '@/test/session';
 import { Role } from '@/types/auth';
 import { MachineState } from '@/types/machine';
 import { OperationalImpact } from '@/types/machine-part';
+import { MaintenanceScheduleState } from '@/types/maintenance';
 import { PartsSection } from './parts-section';
 
 vi.mock('next/navigation', async () => (await import('@/test/navigation')).navigationModule);
@@ -92,5 +93,33 @@ describe('Machine parts section', () => {
     expect(screen.getByText('No parts configured')).toBeInTheDocument();
     expect(screen.getByText(/An administrator can add them/)).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it("shows each part's next maintenance as the API resolved it", () => {
+    signInAs(Role.TECHNICIAN);
+    const withTask = makeMachineDetail({
+      partDetails: [
+        makePart({
+          id: 1,
+          name: 'Cutting head',
+          partCode: 'CH-01',
+          nextMaintenance: {
+            scheduleId: 3,
+            taskName: 'Lens inspection',
+            intervalDays: 7,
+            nextMaintenanceAt: '2026-10-05T09:00:00.000Z',
+            state: MaintenanceScheduleState.OVERDUE,
+            daysUntilDue: -2,
+          },
+        }),
+        makePart({ id: 2, name: 'Nozzle', partCode: 'NZ-01' }),
+      ],
+    });
+    renderWithProviders(<PartsSection machine={withTask} />);
+
+    expect(within(rowFor('Cutting head')).getByText('Overdue')).toBeInTheDocument();
+    expect(within(rowFor('Cutting head')).getByText('Lens inspection · 2 days late')).toBeInTheDocument();
+    expect(within(rowFor('Cutting head')).getByText('5 Oct 2026')).toBeInTheDocument();
+    expect(within(rowFor('Nozzle')).getByText('No tasks')).toBeInTheDocument();
   });
 });

@@ -1,27 +1,17 @@
 'use client';
 
-import { keepPreviousData, queryOptions, useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/constants/query-keys';
 import { machinesApi } from '@/lib/api/machines';
 import { type ListMachinesParams } from '@/types/machine';
 import { type MachineHistoryParams } from '@/types/machine-log';
 
-/** A machine's activity history, newest first, loaded page by page. */
-export function useMachineHistory(machineId: number, params: Omit<MachineHistoryParams, 'page'>) {
-  return useInfiniteQuery({
-    queryKey: queryKeys.machines.history(machineId, params),
-    queryFn: ({ pageParam, signal }) => machinesApi.history(machineId, { ...params, page: pageParam }, { signal }),
-    initialPageParam: 1,
-    getNextPageParam: (lastPage) => (lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined),
-    enabled: machineId > 0,
-  });
-}
-
-/** One page of history, for single facts such as the last completed maintenance. */
+/** One page of a machine's history; keeps the previous page on screen while the next one loads. */
 export function useMachineHistoryPage(machineId: number, params: MachineHistoryParams) {
   return useQuery({
     queryKey: queryKeys.machines.history(machineId, params),
     queryFn: ({ signal }) => machinesApi.history(machineId, params, { signal }),
+    placeholderData: keepPreviousData,
     enabled: machineId > 0,
   });
 }

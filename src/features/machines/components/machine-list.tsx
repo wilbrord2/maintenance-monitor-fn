@@ -26,17 +26,19 @@ import { type MaintenanceSchedule } from '@/types/maintenance';
 import { MachineRowActions } from './machine-row-actions';
 
 /**
- * Schedules for the machines whose maintenance needs attention, keyed by machine. The machines
- * endpoint does not carry the schedule, so machines missing from this map simply are not due soon.
+ * The most urgent maintenance task of each machine that needs attention, keyed by machine. The
+ * machines endpoint does not carry tasks, so machines missing from this map simply are not due soon.
  */
 export type MaintenanceByMachine = ReadonlyMap<number, MaintenanceSchedule>;
 
 function MaintenanceCell({ schedule }: { schedule: MaintenanceSchedule | undefined }) {
   if (!schedule) return <span className="text-xs text-muted">Not due soon</span>;
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className="flex min-w-0 flex-col items-start gap-1">
       <MaintenanceStateBadge state={schedule.state} size="sm" />
-      <span className="text-xs whitespace-nowrap text-muted">{formatDate(schedule.nextMaintenanceAt)}</span>
+      <span className="max-w-40 truncate text-xs text-muted" title={schedule.taskName}>
+        {schedule.taskName} · {formatDate(schedule.nextMaintenanceAt)}
+      </span>
     </div>
   );
 }
@@ -189,7 +191,7 @@ export function MachineCard({ machine, schedule }: { machine: Machine; schedule?
           <dt className="text-muted">Maintenance</dt>
           <dd className="mt-0.5 truncate text-ink">
             {schedule ? (
-              <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1.5" title={schedule.taskName}>
                 <MaintenanceStateBadge state={schedule.state} size="sm" />
                 {formatDate(schedule.nextMaintenanceAt)}
               </span>

@@ -20,8 +20,8 @@ export interface MaintenanceAttentionProps {
 }
 
 /**
- * Machines whose preventive maintenance is overdue, due today or approaching. The API decides
- * which schedules appear here; this list never works out a due date for itself.
+ * Maintenance tasks that are overdue, due today or approaching, most urgent first. The API decides
+ * which tasks appear here; this list never works out a due date for itself.
  */
 export function MaintenanceAttention({ limit = 6 }: MaintenanceAttentionProps) {
   const attention = useMaintenanceAttention({ limit: 50 });
@@ -38,16 +38,17 @@ export function MaintenanceAttention({ limit = 6 }: MaintenanceAttentionProps) {
         <EmptyState
           icon={CalendarCheck}
           title="No maintenance needs attention"
-          description="Machines with maintenance approaching, due or overdue will appear here."
+          description="Part inspections and machine-wide tasks that are approaching, due or overdue will appear here."
         />
       );
     }
     return (
       <Table>
-        <caption className="sr-only">Machines whose preventive maintenance needs attention</caption>
+        <caption className="sr-only">Maintenance tasks that need attention</caption>
         <TableHead>
           <tr>
             <TableHeaderCell>Machine</TableHeaderCell>
+            <TableHeaderCell>Task</TableHeaderCell>
             <TableHeaderCell>Maintenance</TableHeaderCell>
             <TableHeaderCell>Due</TableHeaderCell>
             <TableHeaderCell className="hidden sm:table-cell">Date</TableHeaderCell>
@@ -63,6 +64,10 @@ export function MaintenanceAttention({ limit = 6 }: MaintenanceAttentionProps) {
                 {schedule.machine ? (
                   <p className="truncate font-mono text-xs text-muted">{schedule.machine.serialNumber}</p>
                 ) : null}
+              </TableCell>
+              <TableCell className="max-w-48">
+                <p className="truncate text-ink">{schedule.taskName}</p>
+                <p className="truncate text-xs text-muted">{schedule.machinePart?.name ?? 'Machine-wide'}</p>
               </TableCell>
               <TableCell>
                 <MaintenanceStateBadge state={schedule.state} size="sm" />

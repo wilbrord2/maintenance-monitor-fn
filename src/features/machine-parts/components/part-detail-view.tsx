@@ -7,6 +7,7 @@ import { DetailList } from '@/components/data/detail-list';
 import { ErrorState } from '@/components/feedback/error-state';
 import { NotFoundState } from '@/components/feedback/not-found-state';
 import { PageHeader } from '@/components/layout/page-header';
+import { MaintenanceStateBadge } from '@/components/status/maintenance-badges';
 import { OperationalImpactBadge, PartStatusBadge } from '@/components/status/part-status-badge';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -14,14 +15,16 @@ import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { LoadingRegion, Skeleton } from '@/components/ui/skeleton';
 import { CRITICALITY_CONFIG, MACHINE_PART_STATUS_CONFIG } from '@/constants/machine-part';
+import { describeDaysUntilDue } from '@/constants/maintenance';
 import { buildCreateLogUrl, ROUTES } from '@/constants/routes';
 import { TONE_CLASSES } from '@/constants/tones';
 import { isApiError } from '@/lib/api/errors';
 import { Permission } from '@/lib/permissions/permissions';
 import { usePermissions } from '@/lib/permissions/use-permissions';
 import { cn } from '@/lib/utils/cn';
-import { formatDateTime, formatRelativeTime } from '@/lib/utils/date';
+import { formatDate, formatDateTime, formatRelativeTime } from '@/lib/utils/date';
 import { useMachine } from '@/features/machines/api/queries';
+import { PartMaintenanceSection } from '@/features/maintenance/components/part-maintenance-section';
 import { type MachinePart } from '@/types/machine-part';
 import { useMachinePart } from '../api/queries';
 import { PartHistory } from './part-history';
@@ -167,6 +170,18 @@ export function PartDetailView({ machineId, partId }: { machineId: number; partI
                       <span className="text-muted">None while the part is active</span>
                     ),
                   },
+                  {
+                    label: 'Next maintenance',
+                    value: part.nextMaintenance ? (
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        <MaintenanceStateBadge state={part.nextMaintenance.state} size="sm" />
+                        {part.nextMaintenance.taskName} · {formatDate(part.nextMaintenance.nextMaintenanceAt)} (
+                        {describeDaysUntilDue(part.nextMaintenance.daysUntilDue).toLowerCase()})
+                      </span>
+                    ) : (
+                      <span className="text-muted">No active tasks</span>
+                    ),
+                  },
                   { label: 'In use', value: part.isActive ? 'Yes' : 'No' },
                   { label: 'Added', value: formatDateTime(part.createdAt) },
                   { label: 'Last updated', value: formatDateTime(part.updatedAt) },
@@ -175,6 +190,10 @@ export function PartDetailView({ machineId, partId }: { machineId: number; partI
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      <div className="mt-4">
+        <PartMaintenanceSection part={part} machineName={machineName} machineActive={machineQuery.data?.isActive ?? true} />
       </div>
 
       {/* Full width: the history table needs the room for its eight columns. */}

@@ -8,10 +8,13 @@ import { type CreateMachinePartRequest, type UpdateMachinePartRequest } from '@/
 /**
  * Any part change can move the machine's statuses, so the machine itself is refetched rather than
  * patched: the API derives them and is the only source for them. A part's condition changes only
- * through machine logs (see the machine-logs mutations).
+ * through machine logs (see the machine-logs mutations). Removing or taking a part out of use also
+ * deactivates its maintenance tasks, which drops them from the maintenance boards.
  */
 function syncAfterPartChange(queryClient: QueryClient, machineId: number) {
   void queryClient.invalidateQueries({ queryKey: queryKeys.machines.detail(machineId) });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.maintenance.schedules() });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.maintenance.boards() });
   void queryClient.invalidateQueries({ queryKey: queryKeys.machines.lists() });
   void queryClient.invalidateQueries({ queryKey: queryKeys.analytics.all });
 }

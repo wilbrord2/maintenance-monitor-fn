@@ -77,7 +77,8 @@ export interface Machine {
 /** `GET /machines/:id` additionally returns the part conditions and the maintenance plan. */
 export interface MachineDetail extends Machine {
   partDetails: MachinePart[];
-  maintenance: MaintenanceSchedule | null;
+  /** Every maintenance task of the machine: machine-wide tasks and part inspections. */
+  maintenanceSchedules: MaintenanceSchedule[];
 }
 
 /** Compact machine reference embedded in logs and analytics. */
