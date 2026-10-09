@@ -3,6 +3,7 @@ import {
   type CreateMachineRequest,
   type ListMachinesParams,
   type Machine,
+  type MachineDetail,
   MACHINE_STATES,
   type MachineState,
   type StateTransitionRules,
@@ -32,7 +33,9 @@ function normalizeTransitionRules(response: StateTransitionsResponse): StateTran
 export const machinesApi = {
   list: (params: ListMachinesParams, options?: RequestOptions) => getPage<Machine>('/machines', params, options),
 
-  get: (id: number, options?: RequestOptions) => getData<Machine>(`/machines/${id}`, undefined, options),
+  /** Returns the machine with its part conditions and maintenance plan. */
+  get: (id: number, options?: RequestOptions) =>
+    getData<MachineDetail>(`/machines/${id}`, undefined, options),
 
   /** ADMIN only. Status is not accepted: machines always start ACTIVE. */
   create: (body: CreateMachineRequest) => postData<Machine>('/machines', body),
@@ -46,6 +49,7 @@ export const machinesApi = {
 
   remove: (id: number) => deleteData(`/machines/${id}`),
 
+  /** Machine and part events of the machine; filter with `scope` / `machinePartId`. */
   history: (id: number, params: MachineHistoryParams, options?: RequestOptions) =>
     getPage<MachineLog>(`/machines/${id}/logs`, params, options),
 

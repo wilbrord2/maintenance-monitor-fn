@@ -1,21 +1,26 @@
 'use client';
 
-import { CircleDashed, CircleCheckBig, ClipboardList, Factory, Timer } from 'lucide-react';
+import { CalendarCheck, CircleDashed, CircleCheckBig, ClipboardList, Component, Factory, Timer } from 'lucide-react';
 import { ErrorState } from '@/components/feedback/error-state';
 import { StatTile } from '@/components/data/stat-tile';
 import { PageHeader } from '@/components/layout/page-header';
 import { LiveIndicator } from '@/components/status/live-indicator';
-import { MACHINE_STATE_CONFIG } from '@/constants/machine-state';
+import { MACHINE_OPERATIONAL_STATUS_CONFIG } from '@/constants/machine-operational-status';
+import { MAINTENANCE_STATE_CONFIG } from '@/constants/maintenance';
 import { ROUTES } from '@/constants/routes';
-import { useAnalyticsOverview } from '@/features/analytics/api/queries';
+import { useAnalyticsOverview, useMaintenanceAnalytics } from '@/features/analytics/api/queries';
+import { MaintenanceAttention } from '@/features/maintenance/components/maintenance-attention';
+import { Permission } from '@/lib/permissions/permissions';
+import { usePermissions } from '@/lib/permissions/use-permissions';
 import { useSession } from '@/lib/auth/session-store';
 import { formatHours, formatNumber, toPercent } from '@/lib/utils/format';
-import { MACHINE_STATES, MachineState } from '@/types/machine';
+import { MACHINE_OPERATIONAL_STATUSES, MachineOperationalStatus } from '@/types/machine';
+import { MaintenanceScheduleState } from '@/types/maintenance';
 import { MaintenanceWork } from './maintenance-work';
 import { NeedsAttention } from './needs-attention';
 import { QuickActions } from './quick-actions';
 import { RecentActivity } from './recent-activity';
-import { getStateCounts, StatusDistribution } from './status-distribution';
+import { getOperationalCounts, StatusDistribution } from './status-distribution';
 
 const RANGE = { days: 30 } as const;
 
@@ -27,12 +32,18 @@ function greeting(hour: number): string {
 
 export function DashboardView() {
   const firstName = useSession((state) => state.user?.fullName.split(' ')[0] ?? '');
+  const { can } = usePermissions();
   const overview = useAnalyticsOverview(RANGE);
   const data = overview.data;
   const loading = overview.isPending;
-  const counts = data ? getStateCounts(data.machines) : null;
-  const countFor = (state: MachineState) => counts?.find((row) => row.state === state)?.count ?? 0;
+  const counts = data ? getOperationalCounts(data.machineOperational) : null;
+  const countFor = (status: MachineOperationalStatus) => counts?.find((row) => row.status === status)?.count ?? 0;
   const fleetTotal = counts?.reduce((sum, row) => sum + row.count, 0) ?? 0;
+  const partsNeedingAttention = data ? data.parts.total - data.parts.active : 0;
+
+  const canSeeMaintenance = can(Permission.VIEW_MAINTENANCE);
+  const maintenanceAnalytics = useMaintenanceAnalytics(RANGE, { enabled: canSeeMaintenance });
+  const maintenanceCounts = data?.maintenance;
 
   return (
     <>
@@ -59,24 +70,74 @@ export function DashboardView() {
           loading={loading}
           className="col-span-2 md:col-span-1"
         />
-        {MACHINE_STATES.map((state) => {
-          const config = MACHINE_STATE_CONFIG[state];
-          const count = countFor(state);
+        {MACHINE_OPERATIONAL_STATUSES.map((status) => {
+          const config = MACHINE_OPERATIONAL_STATUS_CONFIG[status];
+          const count = countFor(status);
           return (
             <StatTile
-              key={state}
+              key={status}
               label={config.label}
               icon={config.icon}
               tone={config.tone}
               value={formatNumber(count)}
               caption={`${toPercent(count, fleetTotal)}% of fleet`}
-              href={`${ROUTES.machines}?status=${state}`}
+              href={`${ROUTES.machines}?status=${status}`}
               loading={loading}
-              emphasized={state === MachineState.DOWNTIME && count > 0}
+              emphasized={status === MachineOperationalStatus.NOT_OPERATING && count > 0}
             />
           );
         })}
+        <StatTile
+          label="Parts needing attention"
+          icon={Component}
+          tone={partsNeedingAttention > 0 ? 'warning' : undefined}
+          value={formatNumber(partsNeedingAttention)}
+          caption={data ? `of ${formatNumber(data.parts.total)} parts monitored` : 'Across the fleet'}
+          loading={loading}
+        />
       </section>
+
+      {canSeeMaintenance ? (
+        <section aria-label="Preventive maintenance" className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <StatTile
+            label={MAINTENANCE_STATE_CONFIG[MaintenanceScheduleState.UPCOMING].label}
+            icon={MAINTENANCE_STATE_CONFIG[MaintenanceScheduleState.UPCOMING].icon}
+            tone="info"
+            value={formatNumber(maintenanceCounts?.upcoming ?? 0)}
+            caption="Approaching their due date"
+            href={`${ROUTES.maintenance}?state=UPCOMING`}
+            loading={loading}
+          />
+          <StatTile
+            label={MAINTENANCE_STATE_CONFIG[MaintenanceScheduleState.DUE].label}
+            icon={MAINTENANCE_STATE_CONFIG[MaintenanceScheduleState.DUE].icon}
+            tone="warning"
+            value={formatNumber(maintenanceCounts?.due ?? 0)}
+            caption="Due today"
+            href={`${ROUTES.maintenance}?state=DUE`}
+            loading={loading}
+          />
+          <StatTile
+            label={MAINTENANCE_STATE_CONFIG[MaintenanceScheduleState.OVERDUE].label}
+            icon={MAINTENANCE_STATE_CONFIG[MaintenanceScheduleState.OVERDUE].icon}
+            tone="critical"
+            value={formatNumber(maintenanceCounts?.overdue ?? 0)}
+            caption="Past their due date"
+            href={`${ROUTES.maintenance}?state=OVERDUE`}
+            loading={loading}
+            emphasized={(maintenanceCounts?.overdue ?? 0) > 0}
+          />
+          <StatTile
+            label="Completed"
+            icon={CalendarCheck}
+            tone="positive"
+            value={formatNumber(maintenanceAnalytics.data?.compliance.completed ?? 0)}
+            caption="Last 30 days"
+            href={`${ROUTES.maintenance}?tab=events&status=COMPLETED`}
+            loading={maintenanceAnalytics.isPending}
+          />
+        </section>
+      ) : null}
 
       <section aria-label="Maintenance metrics" className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatTile
@@ -94,10 +155,19 @@ export function DashboardView() {
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <NeedsAttention downtimeCount={data?.machines.downtime} maintenanceCount={data?.machines.underMaintenance} />
+          <NeedsAttention
+            notOperatingCount={data?.machineOperational.notOperating}
+            withDefectsCount={data?.machineOperational.operatingWithDefects}
+          />
         </div>
-        <StatusDistribution machines={data?.machines} loading={loading} />
+        <StatusDistribution overview={data} loading={loading} />
       </div>
+
+      {canSeeMaintenance ? (
+        <div className="mt-4">
+          <MaintenanceAttention />
+        </div>
+      ) : null}
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <RecentActivity />

@@ -1,17 +1,19 @@
 import { z } from 'zod';
 import { isLogStatus, LOG_STATUS_CONFIG } from '@/constants/log-status';
+import { isOperationalImpact } from '@/constants/machine-part';
 import { isMachineState, MACHINE_STATE_CONFIG } from '@/constants/machine-state';
 import { isTransitionAllowed, requiresOpenLog } from '@/lib/machine-state/transitions';
 import { fromDateTimeLocalValue, hoursBetween, toDateTimeLocalValue } from '@/lib/utils/date';
 import { formatHours } from '@/lib/utils/format';
 import { parseIdParam } from '@/lib/utils/url-params';
-import { type MachineState, type StateTransitionRules } from '@/types/machine';
+import { MachineState, type StateTransitionRules } from '@/types/machine';
 import {
   type CreateMachineLogRequest,
   type LogStatus,
   type MachineLog,
   type UpdateMachineLogRequest,
 } from '@/types/machine-log';
+import { OperationalImpact } from '@/types/machine-part';
 import { emptyToUndefined, optionalText, requiredText } from './primitives';
 
 /** The API rejects timestamps more than five minutes in the future. */
@@ -21,6 +23,8 @@ const DOWNTIME_PATTERN = /^\d{1,8}(\.\d{1,2})?$/;
 /** Form values are kept as strings (as inputs produce them) and converted when building requests. */
 const machineLogFormObject = z.object({
   machineId: z.string(),
+  /** Empty for a whole-machine event. */
+  machinePartId: z.string(),
   faultDescription: requiredText({
     label: 'Fault description',
     max: 2000,
@@ -31,6 +35,8 @@ const machineLogFormObject = z.object({
   entryStatus: z.string(),
   remedyAction: optionalText({ label: 'Action taken', max: 2000, multiline: true }),
   resultingState: z.string(),
+  /** Part events only; ignored for whole-machine events. */
+  operationalImpact: z.string(),
   downtimeHours: z.string().trim(),
   logStatus: z.string(),
   nextMaintenancePlan: optionalText({ label: 'Next maintenance plan', max: 1000, multiline: true }),
@@ -47,7 +53,7 @@ export const MACHINE_LOG_FORM_FIELDS: readonly MachineLogFormField[] = Object.ke
 export interface MachineLogValidationContext {
   mode: 'create' | 'edit';
   rules: StateTransitionRules;
-  /** Whether the log is (or will become) the machine's most recent log. */
+  /** Whether the log is (or will become) the most recent log of its subject (machine system or part). */
   isLatestLog: boolean;
   now?: () => Date;
 }
@@ -62,13 +68,22 @@ export function createMachineLogFormSchema(context: MachineLogValidationContext)
 
     const hasMachine = context.mode === 'edit' || parseIdParam(values.machineId) !== undefined;
     if (!hasMachine) issue('machineId', 'Choose a machine');
+    const isPartLog = parseIdParam(values.machinePartId) !== undefined;
+    const subject = isPartLog ? 'part' : 'machine';
 
     const entry = isMachineState(values.entryStatus) ? values.entryStatus : null;
     const result = isMachineState(values.resultingState) ? values.resultingState : null;
-    if (hasMachine && !entry) issue('entryStatus', "Waiting for the machine's current state");
-    if (!result) issue('resultingState', 'Choose the state the machine is in after this event');
+    if (hasMachine && !entry) issue('entryStatus', `Waiting for the ${subject}'s current state`);
+    if (!result) issue('resultingState', `Choose the state the ${subject} is in after this event`);
     if (entry && result && !isTransitionAllowed(context.rules, entry, result)) {
-      issue('resultingState', `A machine can't go from ${stateLabel(entry)} to ${stateLabel(result)}`);
+      issue('resultingState', `A ${subject} can't go from ${stateLabel(entry)} to ${stateLabel(result)}`);
+    }
+
+    if (isPartLog && values.operationalImpact !== '') {
+      if (!isOperationalImpact(values.operationalImpact)) issue('operationalImpact', 'Choose whether this stops the machine');
+      else if (result === MachineState.ACTIVE && values.operationalImpact === OperationalImpact.BLOCKING) {
+        issue('operationalImpact', 'A part back in service is always non-blocking');
+      }
     }
 
     const status = isLogStatus(values.logStatus) ? values.logStatus : null;
@@ -91,7 +106,7 @@ export function createMachineLogFormSchema(context: MachineLogValidationContext)
       if (status === 'OPEN' && values.endedAt) issue('endedAt', "Open work has no end time. Clear it, or close the log.");
       if (status === 'CLOSED' && !values.endedAt) issue('endedAt', 'Enter when the work ended to close the log');
       if (status === 'CLOSED' && result && context.isLatestLog && requiresOpenLog(context.rules, result)) {
-        issue('logStatus', `Keep the log open while the machine is ${stateLabel(result).toLowerCase()}`);
+        issue('logStatus', `Keep the log open while the ${subject} is ${stateLabel(result).toLowerCase()}`);
       }
     }
 
@@ -118,20 +133,28 @@ function toLogStatus(value: string): LogStatus {
   return value;
 }
 
+/** The impact to send: only for part events, and always NON_BLOCKING for a part back in service. */
+function toOperationalImpact(values: Pick<MachineLogFormValues, 'operationalImpact' | 'resultingState'>): OperationalImpact | undefined {
+  if (values.resultingState === MachineState.ACTIVE) return OperationalImpact.NON_BLOCKING;
+  return isOperationalImpact(values.operationalImpact) ? values.operationalImpact : undefined;
+}
+
 function toIso(value: string): string {
   const iso = fromDateTimeLocalValue(value);
   if (!iso) throw new Error(`Invalid date-time: ${value}`);
   return iso;
 }
 
-export function createLogFormDefaults(options: { machineId?: number; now: Date }): MachineLogFormInput {
+export function createLogFormDefaults(options: { machineId?: number; machinePartId?: number; now: Date }): MachineLogFormInput {
   return {
     machineId: options.machineId ? String(options.machineId) : '',
+    machinePartId: options.machineId && options.machinePartId ? String(options.machinePartId) : '',
     faultDescription: '',
     causeDescription: '',
     entryStatus: '',
     remedyAction: '',
     resultingState: '',
+    operationalImpact: '',
     downtimeHours: '',
     logStatus: LOG_STATUS_CONFIG.OPEN.value,
     nextMaintenancePlan: '',
@@ -143,11 +166,13 @@ export function createLogFormDefaults(options: { machineId?: number; now: Date }
 export function logToFormInput(log: MachineLog): MachineLogFormInput {
   return {
     machineId: String(log.machine.id),
+    machinePartId: log.machinePart ? String(log.machinePart.id) : '',
     faultDescription: log.faultDescription,
     causeDescription: log.causeDescription ?? '',
     entryStatus: log.entryStatus,
     remedyAction: log.remedyAction ?? '',
     resultingState: log.resultingState,
+    operationalImpact: log.operationalImpact ?? '',
     downtimeHours: String(log.downtimeHours),
     logStatus: log.logStatus,
     nextMaintenancePlan: log.nextMaintenancePlan ?? '',
@@ -156,13 +181,20 @@ export function logToFormInput(log: MachineLog): MachineLogFormInput {
   };
 }
 
-/** Call only with values that passed {@link createMachineLogFormSchema}. */
+/**
+ * Call only with values that passed {@link createMachineLogFormSchema}. The entry state is the
+ * subject's state as displayed, sent so the API can refuse the log if it changed meanwhile.
+ * `operationalImpact` is sent only for part events: the API rejects it on whole-machine events.
+ */
 export function toCreateMachineLogRequest(values: MachineLogFormValues): CreateMachineLogRequest {
   const causeDescription = emptyToUndefined(values.causeDescription);
   const remedyAction = emptyToUndefined(values.remedyAction);
   const nextMaintenancePlan = emptyToUndefined(values.nextMaintenancePlan);
+  const machinePartId = parseIdParam(values.machinePartId);
+  const operationalImpact = machinePartId !== undefined ? toOperationalImpact(values) : undefined;
   return {
     machineId: Number(values.machineId),
+    ...(machinePartId !== undefined ? { machinePartId } : {}),
     faultDescription: values.faultDescription,
     entryStatus: toMachineState(values.entryStatus),
     resultingState: toMachineState(values.resultingState),
@@ -173,12 +205,14 @@ export function toCreateMachineLogRequest(values: MachineLogFormValues): CreateM
     ...(nextMaintenancePlan ? { nextMaintenancePlan } : {}),
     ...(values.endedAt ? { endedAt: toIso(values.endedAt) } : {}),
     ...(values.downtimeHours !== '' ? { downtimeHours: Number(values.downtimeHours) } : {}),
+    ...(operationalImpact ? { operationalImpact } : {}),
   };
 }
 
 /**
  * Sends only fields that changed from `initial`, plus the version that was read.
  * Cleared optional text becomes null; a cleared downtime is left for the API to recalculate.
+ * The machine, part and entry state are immutable and never sent; the impact only for part events.
  */
 export function toUpdateMachineLogRequest(
   values: MachineLogFormValues,
@@ -193,6 +227,10 @@ export function toUpdateMachineLogRequest(
     request.nextMaintenancePlan = values.nextMaintenancePlan || null;
   }
   if (values.resultingState !== initial.resultingState) request.resultingState = toMachineState(values.resultingState);
+  if (initial.machinePartId !== '') {
+    const impact = toOperationalImpact(values);
+    if (impact && impact !== initial.operationalImpact) request.operationalImpact = impact;
+  }
   if (values.logStatus !== initial.logStatus) request.logStatus = toLogStatus(values.logStatus);
   if (values.startedAt !== initial.startedAt) request.startedAt = toIso(values.startedAt);
   if (values.endedAt !== initial.endedAt) request.endedAt = values.endedAt ? toIso(values.endedAt) : null;

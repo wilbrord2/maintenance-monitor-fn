@@ -7,12 +7,23 @@ import {
   parseSortParam,
   type SortState,
 } from '@/lib/utils/url-params';
-import { type ListMachinesParams, MACHINE_SORT_FIELDS, MACHINE_STATES, type MachineSortField, type MachineState } from '@/types/machine';
+import {
+  type ListMachinesParams,
+  MACHINE_OPERATIONAL_STATUSES,
+  MACHINE_SORT_FIELDS,
+  MACHINE_STATES,
+  type MachineOperationalStatus,
+  type MachineSortField,
+  type MachineState,
+} from '@/types/machine';
 
 export type ActiveFilter = 'true' | 'false';
 
 export interface MachineFilters extends SortState<MachineSortField> {
   search: string;
+  /** The machine's resolved operational status: the status the board is organised by. */
+  operationalStatus: MachineOperationalStatus | undefined;
+  /** Effective status (API `status`), derived from the system status and parts. A secondary filter. */
   status: MachineState | undefined;
   active: ActiveFilter | undefined;
   page: number;
@@ -42,7 +53,8 @@ export const MACHINE_SORT_OPTIONS = [
 export function parseMachineFilters(params: Pick<URLSearchParams, 'get'>): MachineFilters {
   return {
     search: parseSearchParam(params.get('search')),
-    status: parseEnumParam(params.get('status'), MACHINE_STATES),
+    operationalStatus: parseEnumParam(params.get('status'), MACHINE_OPERATIONAL_STATUSES),
+    status: parseEnumParam(params.get('workflow'), MACHINE_STATES),
     active: parseEnumParam(params.get('active'), ['true', 'false'] as const),
     ...parseSortParam(params.get('sort'), MACHINE_SORT_FIELDS, DEFAULT_MACHINE_SORT),
     page: parsePageParam(params.get('page')),
@@ -57,11 +69,15 @@ export function toListMachinesParams(filters: MachineFilters): ListMachinesParam
     sortBy: filters.sortBy,
     sortOrder: filters.sortOrder,
     search: filters.search || undefined,
+    operationalStatus: filters.operationalStatus,
     status: filters.status,
     isActive: filters.active === undefined ? undefined : filters.active === 'true',
   };
 }
 
+/** URL parameters owned by the machines view (cleared by "Clear filters"). */
+export const MACHINE_FILTER_PARAMS = ['search', 'status', 'workflow', 'active', 'page'] as const;
+
 export function hasMachineFilters(filters: MachineFilters): boolean {
-  return Boolean(filters.search || filters.status || filters.active);
+  return Boolean(filters.search || filters.operationalStatus || filters.status || filters.active);
 }

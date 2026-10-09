@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { DetailList } from '@/components/data/detail-list';
 import { Badge } from '@/components/ui/badge';
 import { Sheet } from '@/components/ui/sheet';
-import { AUDIT_ACTION_CONFIG, AUDIT_ENTITY_LABELS, getAuditEntityHref } from '@/constants/audit';
+import { getAuditActionConfig, getAuditEntityHref, getAuditEntityLabel } from '@/constants/audit';
 import { cn } from '@/lib/utils/cn';
 import { formatDateTime } from '@/lib/utils/date';
 import { type AuditLog } from '@/types/audit';
@@ -29,7 +29,7 @@ export function AuditEntryDetails({ entry, onClose }: { entry: AuditLog | null; 
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={entry ? AUDIT_ACTION_CONFIG[entry.action].label : 'Audit entry'}
+      title={entry ? getAuditActionConfig(entry.action).label : 'Audit entry'}
       description={entry ? formatDateTime(entry.createdAt) : undefined}
       className="w-[min(100vw,32rem)]"
     >
@@ -38,13 +38,13 @@ export function AuditEntryDetails({ entry, onClose }: { entry: AuditLog | null; 
           <DetailList
             columns={1}
             items={[
-              { label: 'Action', value: <Badge tone={AUDIT_ACTION_CONFIG[entry.action].tone}>{AUDIT_ACTION_CONFIG[entry.action].label}</Badge> },
+              { label: 'Action', value: <Badge tone={getAuditActionConfig(entry.action).tone}>{getAuditActionConfig(entry.action).label}</Badge> },
               { label: 'User', value: entry.user ? `${entry.user.fullName} (${entry.user.email})` : 'System or unknown user' },
               {
                 label: 'Record',
                 value: (
                   <span>
-                    {AUDIT_ENTITY_LABELS[entry.entity]}
+                    {getAuditEntityLabel(entry.entity)}
                     {entry.entityId ? (
                       href ? (
                         <Link href={href} className="ml-1 font-mono hover:underline">

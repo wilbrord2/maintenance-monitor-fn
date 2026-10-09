@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { MachineStateBadge } from '@/components/status/machine-state-badge';
+import { MaintenanceStateBadge } from '@/components/status/maintenance-badges';
+import { OperationalStatusBadge } from '@/components/status/operational-status-badge';
 import { Badge } from '@/components/ui/badge';
 import {
   SortableHeaderCell,
@@ -13,13 +15,44 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ROUTES } from '@/constants/routes';
+import { describePartsAttention, partBreakdown } from '@/features/machine-parts/lib/summary';
 import { cn } from '@/lib/utils/cn';
-import { formatDateTime, formatRelativeTime, toIsoString } from '@/lib/utils/date';
+import { formatDate, formatDateTime, formatRelativeTime, toIsoString } from '@/lib/utils/date';
 import { pluralize } from '@/lib/utils/format';
 import { useRealtimeStore } from '@/stores/realtime-store';
 import { type SortOrder } from '@/types/api';
 import { type Machine, type MachineSortField } from '@/types/machine';
+import { type MaintenanceSchedule } from '@/types/maintenance';
 import { MachineRowActions } from './machine-row-actions';
+
+/**
+ * The most urgent maintenance task of each machine that needs attention, keyed by machine. The
+ * machines endpoint does not carry tasks, so machines missing from this map simply are not due soon.
+ */
+export type MaintenanceByMachine = ReadonlyMap<number, MaintenanceSchedule>;
+
+function MaintenanceCell({ schedule }: { schedule: MaintenanceSchedule | undefined }) {
+  if (!schedule) return <span className="text-xs text-muted">Not due soon</span>;
+  return (
+    <div className="flex min-w-0 flex-col items-start gap-1">
+      <MaintenanceStateBadge state={schedule.state} size="sm" />
+      <span className="max-w-40 truncate text-xs text-muted" title={schedule.taskName}>
+        {schedule.taskName} · {formatDate(schedule.nextMaintenanceAt)}
+      </span>
+    </div>
+  );
+}
+
+function PartsCell({ machine }: { machine: Machine }) {
+  if (machine.parts.total === 0) return <span className="text-xs text-muted">None</span>;
+  const breakdown = partBreakdown(machine.parts);
+  return (
+    <div className="min-w-0">
+      <p className="tabular-nums">{pluralize(machine.parts.total, 'part')}</p>
+      <p className="truncate text-xs text-muted">{breakdown.map((entry) => `${entry.count} ${entry.label}`).join(' · ')}</p>
+    </div>
+  );
+}
 
 function useHighlight(machineId: number) {
   const highlighted = useRealtimeStore((state) => machineId in state.highlightedMachines);
@@ -44,7 +77,7 @@ function InactiveBadge({ machine }: { machine: Machine }) {
   );
 }
 
-function MachineTableRow({ machine }: { machine: Machine }) {
+function MachineTableRow({ machine, schedule }: { machine: Machine; schedule: MaintenanceSchedule | undefined }) {
   const { highlighted, onAnimationEnd } = useHighlight(machine.id);
   return (
     <TableRow className={cn(highlighted && 'animate-row-flash', !machine.isActive && 'text-muted')} onAnimationEnd={onAnimationEnd}>
@@ -59,7 +92,17 @@ function MachineTableRow({ machine }: { machine: Machine }) {
       </TableCell>
       <TableCell className="font-mono text-xs whitespace-nowrap text-ink-secondary">{machine.serialNumber}</TableCell>
       <TableCell>
-        <MachineStateBadge state={machine.status} size="sm" />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <MachineStateBadge state={machine.status} size="sm" />
+          <OperationalStatusBadge status={machine.operationalStatus} size="sm" />
+        </div>
+        <p className="mt-1 text-xs text-muted">{describePartsAttention(machine.parts)}</p>
+      </TableCell>
+      <TableCell>
+        <PartsCell machine={machine} />
+      </TableCell>
+      <TableCell>
+        <MaintenanceCell schedule={schedule} />
       </TableCell>
       <TableCell className="whitespace-nowrap">
         <RelativeTime value={machine.activity.lastActivityAt} />
@@ -82,9 +125,10 @@ export interface MachineTableProps {
   sortBy: MachineSortField;
   sortOrder: SortOrder;
   onSort(field: MachineSortField): void;
+  maintenance?: MaintenanceByMachine;
 }
 
-export function MachineTable({ machines, sortBy, sortOrder, onSort }: MachineTableProps) {
+export function MachineTable({ machines, sortBy, sortOrder, onSort, maintenance }: MachineTableProps) {
   const sortProps = (field: MachineSortField) => ({ active: sortBy === field, direction: sortOrder, onSort: () => onSort(field) });
   return (
     <Table>
@@ -93,7 +137,9 @@ export function MachineTable({ machines, sortBy, sortOrder, onSort }: MachineTab
         <tr>
           <SortableHeaderCell label="Machine" {...sortProps('name')} />
           <SortableHeaderCell label="Serial number" {...sortProps('serialNumber')} />
-          <SortableHeaderCell label="Status" {...sortProps('status')} />
+          <TableHeaderCell>Machine status</TableHeaderCell>
+          <TableHeaderCell>Parts</TableHeaderCell>
+          <TableHeaderCell>Maintenance</TableHeaderCell>
           <TableHeaderCell>Last activity</TableHeaderCell>
           <SortableHeaderCell label="Last updated" {...sortProps('updatedAt')} />
           <TableHeaderCell>
@@ -103,14 +149,14 @@ export function MachineTable({ machines, sortBy, sortOrder, onSort }: MachineTab
       </TableHead>
       <TableBody>
         {machines.map((machine) => (
-          <MachineTableRow key={machine.id} machine={machine} />
+          <MachineTableRow key={machine.id} machine={machine} schedule={maintenance?.get(machine.id)} />
         ))}
       </TableBody>
     </Table>
   );
 }
 
-export function MachineCard({ machine }: { machine: Machine }) {
+export function MachineCard({ machine, schedule }: { machine: Machine; schedule?: MaintenanceSchedule }) {
   const { highlighted, onAnimationEnd } = useHighlight(machine.id);
   return (
     <article
@@ -130,19 +176,34 @@ export function MachineCard({ machine }: { machine: Machine }) {
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <MachineStateBadge state={machine.status} />
+        <OperationalStatusBadge status={machine.operationalStatus} />
         <InactiveBadge machine={machine} />
       </div>
+      <p className="mt-1.5 text-xs text-muted">{describePartsAttention(machine.parts)}</p>
       <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-line-soft pt-3 text-xs">
         <div className="min-w-0">
-          <dt className="text-muted">Last activity</dt>
-          <dd className="mt-0.5 truncate text-ink">
-            <RelativeTime value={machine.activity.lastActivityAt} fallback="None yet" />
+          <dt className="text-muted">Parts</dt>
+          <dd className="mt-0.5 truncate text-ink tabular-nums">
+            {machine.parts.total === 0 ? <span className="text-muted">None</span> : machine.parts.total}
           </dd>
         </div>
         <div className="min-w-0">
-          <dt className="text-muted">Open logs</dt>
-          <dd className={cn('mt-0.5 tabular-nums', machine.activity.openLogs > 0 ? 'text-warning-ink' : 'text-ink')}>
-            {machine.activity.openLogs}
+          <dt className="text-muted">Maintenance</dt>
+          <dd className="mt-0.5 truncate text-ink">
+            {schedule ? (
+              <span className="inline-flex items-center gap-1.5" title={schedule.taskName}>
+                <MaintenanceStateBadge state={schedule.state} size="sm" />
+                {formatDate(schedule.nextMaintenanceAt)}
+              </span>
+            ) : (
+              <span className="text-muted">Not due soon</span>
+            )}
+          </dd>
+        </div>
+        <div className="col-span-2 min-w-0">
+          <dt className="text-muted">Last activity</dt>
+          <dd className="mt-0.5 truncate text-ink">
+            <RelativeTime value={machine.activity.lastActivityAt} fallback="None yet" />
           </dd>
         </div>
         <div className="col-span-2 min-w-0">
@@ -156,12 +217,20 @@ export function MachineCard({ machine }: { machine: Machine }) {
   );
 }
 
-export function MachineCardGrid({ machines, dense = false }: { machines: readonly Machine[]; dense?: boolean }) {
+export function MachineCardGrid({
+  machines,
+  dense = false,
+  maintenance,
+}: {
+  machines: readonly Machine[];
+  dense?: boolean;
+  maintenance?: MaintenanceByMachine;
+}) {
   return (
     <ul className={cn('grid grid-cols-1 gap-3 sm:grid-cols-2', dense ? 'p-3' : 'p-4', 'xl:grid-cols-3 2xl:grid-cols-4')}>
       {machines.map((machine) => (
         <li key={machine.id} className="min-w-0">
-          <MachineCard machine={machine} />
+          <MachineCard machine={machine} schedule={maintenance?.get(machine.id)} />
         </li>
       ))}
     </ul>

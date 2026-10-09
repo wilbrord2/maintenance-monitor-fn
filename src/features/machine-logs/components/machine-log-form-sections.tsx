@@ -7,14 +7,17 @@ import { FormInput } from '@/components/forms/form-input';
 import { FormSelect } from '@/components/forms/form-select';
 import { FormTextarea } from '@/components/forms/form-textarea';
 import { MachineStateBadge } from '@/components/status/machine-state-badge';
+import { OperationalImpactBadge } from '@/components/status/part-status-badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { type SelectOption } from '@/components/ui/select';
 import { LOG_STATUS_CONFIG } from '@/constants/log-status';
+import { OPERATIONAL_IMPACT_OPTIONS } from '@/constants/machine-part';
 import { MACHINE_STATE_CONFIG } from '@/constants/machine-state';
 import { getAllowedResultingStates, requiresOpenLog } from '@/lib/machine-state/transitions';
 import { type MachineLogFormInput, type MachineLogFormValues } from '@/lib/validation/machine-log';
 import { type MachineState, type StateTransitionRules } from '@/types/machine';
 import { LOG_STATUSES, LogStatus } from '@/types/machine-log';
+import { OperationalImpact } from '@/types/machine-part';
 
 export type LogFormControl = Control<MachineLogFormInput, unknown, MachineLogFormValues>;
 
@@ -34,7 +37,7 @@ export function logStatusOptions(closedDisabled: boolean): SelectOption[] {
   }));
 }
 
-/** Whether the log must stay open given the resulting state (only for a machine's most recent log). */
+/** Whether the log must stay open given the resulting state (only for its subject's most recent log). */
 export function mustStayOpen(rules: StateTransitionRules, resulting: MachineState | null, isLatestLog: boolean): boolean {
   return Boolean(resulting && isLatestLog && requiresOpenLog(rules, resulting));
 }
@@ -67,6 +70,8 @@ export interface StateSectionProps {
   resultingOptions: SelectOption[];
   resultingDisabled: boolean;
   resultingHint: ReactNode;
+  /** Card description: what the resulting state will change. */
+  description?: string;
   closedDisabled: boolean;
   logStatusHint?: ReactNode;
   children?: ReactNode;
@@ -80,18 +85,19 @@ export function StateSection({
   resultingOptions,
   resultingDisabled,
   resultingHint,
+  description = 'The new state applies to the machine or part when the log is saved',
   closedDisabled,
   logStatusHint,
   children,
 }: StateSectionProps) {
   return (
     <Card>
-      <CardHeader title="State change" description="The resulting state becomes the machine's status when the log is saved" />
+      <CardHeader title="State change" description={description} />
       <CardContent className="flex flex-col gap-4">
         <div className="grid gap-4 md:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-1.5">
             <p className="text-xs font-semibold text-ink-secondary">{entryLabel}</p>
-            <div className="flex h-9 items-center rounded-md border border-line bg-sunken px-3">
+            <div className="flex h-9 items-center rounded-md border border-line bg-sunken px-3" aria-live="polite">
               {entry ? <MachineStateBadge state={entry} size="sm" /> : <span className="text-[13px] text-muted">Choose a machine first</span>}
             </div>
             {entryHint ? <p className="text-xs text-muted">{entryHint}</p> : null}
@@ -99,9 +105,9 @@ export function StateSection({
           <FormSelect
             control={control}
             name="resultingState"
-            label="Resulting state"
+            label="New state"
             required
-            placeholder={resultingDisabled && resultingOptions.length === 0 ? 'Choose a machine first' : 'Choose the resulting state'}
+            placeholder={resultingDisabled && resultingOptions.length === 0 ? 'Choose a machine first' : 'Choose the new state'}
             options={resultingOptions}
             disabled={resultingDisabled}
             hint={resultingHint}
@@ -118,6 +124,46 @@ export function StateSection({
         {children}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Whether a part event stops the machine. Only for part events: the API refuses it on whole-machine
+ * events. A part back in service is always non-blocking, so no choice is offered then.
+ */
+export function OperationalImpactField({
+  control,
+  returnsToActive,
+  isCritical,
+}: {
+  control: LogFormControl;
+  returnsToActive: boolean;
+  isCritical: boolean;
+}) {
+  if (returnsToActive) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <p className="text-xs font-semibold text-ink-secondary">Operational impact</p>
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-sunken px-3 py-2 text-xs text-muted">
+          <span>A part back in service is always</span>
+          <OperationalImpactBadge impact={OperationalImpact.NON_BLOCKING} size="sm" />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <FormSelect
+      control={control}
+      name="operationalImpact"
+      label="Operational impact"
+      placeholder="Use the part's default"
+      options={OPERATIONAL_IMPACT_OPTIONS}
+      hint={
+        isCritical
+          ? 'This part is critical, so its faults stop the machine by default.'
+          : 'This part is not critical, so its faults leave the machine running by default.'
+      }
+    />
   );
 }
 

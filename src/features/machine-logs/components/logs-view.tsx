@@ -18,9 +18,11 @@ import { Pagination } from '@/components/ui/pagination';
 import { SearchInput } from '@/components/ui/search-input';
 import { Select } from '@/components/ui/select';
 import { TableSkeleton } from '@/components/ui/skeleton';
+import { OPERATIONAL_IMPACT_OPTIONS } from '@/constants/machine-part';
 import { MACHINE_STATE_OPTIONS } from '@/constants/machine-state';
 import { MAX_PAGE_SIZE } from '@/constants/pagination';
 import { buildCreateLogUrl } from '@/constants/routes';
+import { useMachineParts } from '@/features/machine-parts/api/queries';
 import { useMachines } from '@/features/machines/api/queries';
 import { useUsers } from '@/features/technicians/api/queries';
 import { useUrlState } from '@/hooks/use-url-state';
@@ -29,7 +31,7 @@ import { Permission } from '@/lib/permissions/permissions';
 import { usePermissions } from '@/lib/permissions/use-permissions';
 import { cn } from '@/lib/utils/cn';
 import { serializeSort } from '@/lib/utils/url-params';
-import { LogStatus, type MachineLogSortField } from '@/types/machine-log';
+import { LogScope, LogStatus, type MachineLogSortField } from '@/types/machine-log';
 import { useMachineLogs } from '../api/queries';
 import {
   countAdvancedLogFilters,
@@ -42,6 +44,7 @@ import {
 import { LogCardList, LogTable } from './log-list';
 
 type StatusChip = LogStatus | 'ALL';
+type ScopeChip = LogScope | 'ALL';
 
 export function LogsView() {
   const { searchParams, setParams, clearParams } = useUrlState();
@@ -54,6 +57,8 @@ export function LogsView() {
   const logs = useMachineLogs(toListMachineLogsParams(filters, currentUserId), { enabled: !filters.mine || currentUserId !== undefined });
   const machines = useMachines({ page: 1, limit: MAX_PAGE_SIZE, sortBy: 'name', sortOrder: 'asc' });
   const users = useUsers({ page: 1, limit: MAX_PAGE_SIZE, sortBy: 'fullName', sortOrder: 'asc' }, { enabled: canViewUsers });
+  // Parts are per machine, so the part filter follows the machine filter.
+  const parts = useMachineParts(filters.machineId ?? 0, { page: 1, limit: MAX_PAGE_SIZE, sortBy: 'partCode', sortOrder: 'asc' });
 
   const advancedCount = countAdvancedLogFilters(filters);
   const [panelOpen, setPanelOpen] = useState(advancedCount > 0);
@@ -61,6 +66,13 @@ export function LogsView() {
   const machineOptions = (machines.data?.items ?? []).map((machine) => ({ value: String(machine.id), label: machine.name }));
   if (filters.machineId && !machineOptions.some((option) => option.value === String(filters.machineId))) {
     machineOptions.unshift({ value: String(filters.machineId), label: `Machine #${filters.machineId}` });
+  }
+  const partOptions = (parts.data?.items ?? []).map((part) => ({
+    value: String(part.id),
+    label: `${part.partCode} – ${part.name}${part.isActive ? '' : ' (out of use)'}`,
+  }));
+  if (filters.machinePartId && !partOptions.some((option) => option.value === String(filters.machinePartId))) {
+    partOptions.unshift({ value: String(filters.machinePartId), label: `Part #${filters.machinePartId}` });
   }
   const userOptions = (users.data?.items ?? []).map((user) => ({ value: String(user.id), label: user.fullName }));
   if (filters.userId && !userOptions.some((option) => option.value === String(filters.userId))) {
@@ -121,7 +133,7 @@ export function LogsView() {
     <>
       <PageHeader
         title="Machine Logs"
-        description="Every fault, repair, test and inspection across the fleet."
+        description="Every fault, repair, test and inspection across the fleet, for whole machines and their parts."
         actions={
           <>
             <RefreshButton onRefresh={() => void logs.refetch()} refreshing={logs.isFetching && !logs.isPending} />
@@ -145,6 +157,19 @@ export function LogsView() {
               onChange={(search) => setParams({ search }, { resetPage: true })}
               isSearching={logs.isFetching && Boolean(filters.search)}
               className="lg:max-w-sm"
+            />
+            <ChipGroup<ScopeChip>
+              label="Filter by scope"
+              value={filters.scope ?? 'ALL'}
+              // A chosen part implies part events, so any other scope drops it.
+              onChange={(value) =>
+                setParams({ scope: value === 'ALL' ? null : value, ...(value !== LogScope.PART ? { partId: null } : {}) }, { resetPage: true })
+              }
+              options={[
+                { value: 'ALL', label: 'All events' },
+                { value: LogScope.MACHINE, label: 'Machine' },
+                { value: LogScope.PART, label: 'Parts' },
+              ]}
             />
             <ChipGroup<StatusChip>
               label="Filter by log status"
@@ -193,9 +218,34 @@ export function LogsView() {
                       <Select
                         id={id}
                         value={filters.machineId ? String(filters.machineId) : ''}
-                        onChange={(event) => setParams({ machineId: event.target.value || null }, { resetPage: true })}
+                        onChange={(event) => setParams({ machineId: event.target.value || null, partId: null }, { resetPage: true })}
                         options={machineOptions}
                         placeholder="All machines"
+                      />
+                    )}
+                  </FilterField>
+                  <FilterField label="Part">
+                    {(id) => (
+                      <Select
+                        id={id}
+                        value={filters.machinePartId ? String(filters.machinePartId) : ''}
+                        onChange={(event) =>
+                          setParams({ partId: event.target.value || null, ...(event.target.value ? { scope: null } : {}) }, { resetPage: true })
+                        }
+                        options={partOptions}
+                        placeholder={!filters.machineId ? 'Choose a machine first' : partOptions.length === 0 ? 'No parts' : 'All parts'}
+                        disabled={!filters.machineId || partOptions.length === 0}
+                      />
+                    )}
+                  </FilterField>
+                  <FilterField label="Impact">
+                    {(id) => (
+                      <Select
+                        id={id}
+                        value={filters.operationalImpact ?? ''}
+                        onChange={(event) => setParams({ impact: event.target.value || null }, { resetPage: true })}
+                        options={OPERATIONAL_IMPACT_OPTIONS}
+                        placeholder="Any impact"
                       />
                     )}
                   </FilterField>
@@ -224,25 +274,25 @@ export function LogsView() {
                       </label>
                     </div>
                   )}
-                  <FilterField label="Entry state">
+                  <FilterField label="State before">
                     {(id) => (
                       <Select
                         id={id}
                         value={filters.entryStatus ?? ''}
                         onChange={(event) => setParams({ entryStatus: event.target.value || null }, { resetPage: true })}
                         options={MACHINE_STATE_OPTIONS}
-                        placeholder="Any entry state"
+                        placeholder="Any state"
                       />
                     )}
                   </FilterField>
-                  <FilterField label="Resulting state">
+                  <FilterField label="State after">
                     {(id) => (
                       <Select
                         id={id}
                         value={filters.resultingState ?? ''}
                         onChange={(event) => setParams({ resultingState: event.target.value || null }, { resetPage: true })}
                         options={MACHINE_STATE_OPTIONS}
-                        placeholder="Any resulting state"
+                        placeholder="Any state"
                       />
                     )}
                   </FilterField>

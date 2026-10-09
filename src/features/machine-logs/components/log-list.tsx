@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { LogStatusBadge } from '@/components/status/log-status-badge';
-import { MachineStateBadge } from '@/components/status/machine-state-badge';
+import { LogSubjectBadge, MachineStatusChange } from '@/components/status/log-subject';
+import { OperationalImpactBadge } from '@/components/status/part-status-badge';
 import { StateTransition } from '@/components/status/state-transition';
 import {
   SortableHeaderCell,
@@ -29,20 +30,25 @@ export interface LogTableProps {
   onSort(field: MachineLogSortField): void;
 }
 
-/** Full operational table (wide by nature, so it scrolls horizontally inside its container if needed). */
+/**
+ * Full operational table of machine and part events (wide by nature, so it scrolls horizontally
+ * inside its container if needed). The state change is the subject's; the machine's own effective
+ * status change is shown beside it when the event moved it.
+ */
 export function LogTable({ logs, sortBy, sortOrder, onSort }: LogTableProps) {
   const sortProps = (field: MachineLogSortField) => ({ active: sortBy === field, direction: sortOrder, onSort: () => onSort(field) });
   return (
-    <Table className="min-w-[1120px]">
+    <Table className="min-w-[1240px]">
       <caption className="sr-only">Machine logs</caption>
       <TableHead>
         <tr>
           <TableHeaderCell>Machine</TableHeaderCell>
+          <TableHeaderCell>Scope</TableHeaderCell>
           <TableHeaderCell>Technician</TableHeaderCell>
           <TableHeaderCell>Fault</TableHeaderCell>
-          <TableHeaderCell>Entry state</TableHeaderCell>
           <TableHeaderCell>Action taken</TableHeaderCell>
-          <TableHeaderCell>Resulting state</TableHeaderCell>
+          <TableHeaderCell>State change</TableHeaderCell>
+          <TableHeaderCell>Impact</TableHeaderCell>
           <SortableHeaderCell label="Downtime" {...sortProps('downtimeHours')} className="text-right" />
           <TableHeaderCell>Log status</TableHeaderCell>
           <SortableHeaderCell label="Date" {...sortProps('startedAt')} />
@@ -60,18 +66,22 @@ export function LogTable({ logs, sortBy, sortOrder, onSort }: LogTableProps) {
               </Link>
               <p className="truncate font-mono text-[11px] text-muted">{log.machine.serialNumber}</p>
             </TableCell>
+            <TableCell className="max-w-48 align-top">
+              <LogSubjectBadge log={log} />
+            </TableCell>
             <TableCell className="max-w-36 truncate align-top text-ink-secondary">{log.technician.fullName}</TableCell>
             <TableCell className="max-w-56 align-top">
               <p className="line-clamp-2">{log.faultDescription}</p>
-            </TableCell>
-            <TableCell className="align-top">
-              <MachineStateBadge state={log.entryStatus} size="sm" />
             </TableCell>
             <TableCell className="max-w-52 align-top text-ink-secondary">
               {log.remedyAction ? <p className="line-clamp-2">{log.remedyAction}</p> : empty}
             </TableCell>
             <TableCell className="align-top">
-              <MachineStateBadge state={log.resultingState} size="sm" />
+              <StateTransition from={log.entryStatus} to={log.resultingState} />
+              <MachineStatusChange log={log} className="mt-1.5" />
+            </TableCell>
+            <TableCell className="align-top">
+              {log.operationalImpact ? <OperationalImpactBadge impact={log.operationalImpact} size="sm" /> : empty}
             </TableCell>
             <TableCell className="text-right align-top whitespace-nowrap tabular-nums">
               {log.downtimeHours > 0 ? formatHours(log.downtimeHours) : empty}
@@ -108,6 +118,10 @@ export function LogCard({ log }: { log: MachineLog }) {
           <p className="truncate font-mono text-[11px] text-muted">
             {log.machine.serialNumber} · #{log.id}
           </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <LogSubjectBadge log={log} />
+            {log.operationalImpact ? <OperationalImpactBadge impact={log.operationalImpact} size="sm" /> : null}
+          </div>
         </div>
         <div className="relative z-10 -mt-1 -mr-2 flex items-center gap-1">
           <LogStatusBadge status={log.logStatus} size="sm" />
@@ -116,8 +130,9 @@ export function LogCard({ log }: { log: MachineLog }) {
       </div>
       <p className="mt-2 line-clamp-2 text-[13px] text-ink">{log.faultDescription}</p>
       {log.remedyAction ? <p className="mt-1 line-clamp-1 text-xs text-ink-secondary">{log.remedyAction}</p> : null}
-      <div className="mt-3">
+      <div className="mt-3 flex flex-col items-start gap-1.5">
         <StateTransition from={log.entryStatus} to={log.resultingState} />
+        <MachineStatusChange log={log} />
       </div>
       <p className="mt-3 border-t border-line-soft pt-2.5 text-xs text-muted">
         {log.technician.fullName} · {formatDateTime(log.startedAt)}

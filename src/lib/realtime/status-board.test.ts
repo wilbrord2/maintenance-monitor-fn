@@ -1,7 +1,24 @@
 import { type Socket } from 'socket.io-client';
 import { describe, expect, it, vi } from 'vitest';
-import { makeStatusEvent } from '@/test/factories';
-import { connectStatusBoard, isMachineStatusUpdatedEvent, type SocketFactory, type StatusBoardOptions } from './status-board';
+import {
+  makeMaintenanceCompletedEvent,
+  makeOperationalStatusEvent,
+  makePartEvent,
+  makeReminderEvent,
+  makeStatusEvent,
+} from '@/test/factories';
+import { LogScope } from '@/types/machine-log';
+import { MACHINE_PART_UPDATED_EVENT } from '@/types/realtime';
+import {
+  connectStatusBoard,
+  isMachinePartUpdatedEvent,
+  isMachineStatusUpdatedEvent,
+  isMaintenanceCompletedEvent,
+  isMaintenanceReminderEvent,
+  isOperationalStatusEvent,
+  type SocketFactory,
+  type StatusBoardOptions,
+} from './status-board';
 
 type Handler = (...args: unknown[]) => void;
 
@@ -36,6 +53,10 @@ function setup(overrides: Partial<StatusBoardOptions> = {}) {
     getAccessToken: vi.fn(async () => 'access-token'),
     refreshAccessToken: vi.fn(async (): Promise<string | null> => 'fresh-token'),
     onStatusUpdated: vi.fn(),
+    onOperationalStatusUpdated: vi.fn(),
+    onPartUpdated: vi.fn(),
+    onMaintenanceReminder: vi.fn(),
+    onMaintenanceCompleted: vi.fn(),
     onConnectionStatusChange: vi.fn(),
     onResync: vi.fn(),
     createSocket,
@@ -51,6 +72,57 @@ describe('status board connection', () => {
     expect(isMachineStatusUpdatedEvent({ ...makeStatusEvent(), newStatus: 'EXPLODED' })).toBe(false);
     expect(isMachineStatusUpdatedEvent({ machineId: '5' })).toBe(false);
     expect(isMachineStatusUpdatedEvent(null)).toBe(false);
+  });
+
+  it('accepts the status payload with its trigger, and a null log id', () => {
+    expect(isMachineStatusUpdatedEvent(makeStatusEvent({ logId: null, trigger: { type: 'MAINTENANCE_EVENT', maintenanceEventId: 60 } }))).toBe(true);
+    expect(
+      isMachineStatusUpdatedEvent(makeStatusEvent({ trigger: { type: 'MACHINE_PART', partId: 11, logId: 90, scope: LogScope.PART } })),
+    ).toBe(true);
+  });
+
+  it('rejects the old status payload and malformed triggers', () => {
+    const { trigger: _trigger, reason: _reason, ...legacy } = makeStatusEvent();
+    // The removed `source` field is no substitute for `trigger` and `reason`.
+    expect(isMachineStatusUpdatedEvent({ ...legacy, source: 'MACHINE_LOG_CREATED' })).toBe(false);
+    expect(isMachineStatusUpdatedEvent(makeStatusEvent({ logId: undefined }))).toBe(false);
+    expect(isMachineStatusUpdatedEvent({ ...makeStatusEvent(), trigger: { type: 'SOMETHING_ELSE' } })).toBe(false);
+    expect(isMachineStatusUpdatedEvent({ ...makeStatusEvent(), trigger: { type: 'MACHINE_LOG', scope: 'SYSTEM' } })).toBe(false);
+    expect(isMachineStatusUpdatedEvent({ ...makeStatusEvent(), trigger: { type: 'MACHINE_PART', partId: '11' } })).toBe(false);
+    expect(isOperationalStatusEvent({ ...makeOperationalStatusEvent(), trigger: null })).toBe(false);
+  });
+
+  it('validates the part, operational-status and maintenance payloads', () => {
+    expect(isOperationalStatusEvent(makeOperationalStatusEvent())).toBe(true);
+    // A machine state is not an operational status; the two enums must not be mixed up.
+    expect(isOperationalStatusEvent({ ...makeOperationalStatusEvent(), newStatus: 'UNDER_MAINTENANCE' })).toBe(false);
+
+    expect(isMachinePartUpdatedEvent(makePartEvent())).toBe(true);
+    expect(isMachinePartUpdatedEvent({ ...makePartEvent(), newStatus: 'OPERATING' })).toBe(false);
+    expect(isMachinePartUpdatedEvent({ ...makePartEvent(), operationalImpact: 'MAYBE' })).toBe(false);
+
+    expect(isMaintenanceReminderEvent(makeReminderEvent())).toBe(true);
+    expect(isMaintenanceReminderEvent({ ...makeReminderEvent(), state: 'LATE' })).toBe(false);
+    // Machine-wide tasks have no part; every reminder names its task.
+    expect(isMaintenanceReminderEvent(makeReminderEvent({ machinePartId: null, partName: null, taskName: 'External cleaning' }))).toBe(true);
+    const { taskName: _taskName, ...withoutTask } = makeReminderEvent();
+    expect(isMaintenanceReminderEvent(withoutTask)).toBe(false);
+
+    expect(isMaintenanceCompletedEvent(makeMaintenanceCompletedEvent())).toBe(true);
+    expect(isMaintenanceCompletedEvent({ ...makeMaintenanceCompletedEvent(), nextMaintenanceAt: null })).toBe(true);
+    expect(isMaintenanceCompletedEvent({ ...makeMaintenanceCompletedEvent(), completedAt: 5 })).toBe(false);
+    // One-off work has neither task nor schedule.
+    expect(
+      isMaintenanceCompletedEvent(makeMaintenanceCompletedEvent({ scheduleId: null, taskName: null, machinePartId: null, partName: null })),
+    ).toBe(true);
+    expect(isMaintenanceCompletedEvent({ ...makeMaintenanceCompletedEvent(), partName: 7 })).toBe(false);
+  });
+
+  it('delivers only valid payloads to the application', () => {
+    const { socket, options } = setup();
+    socket.emit(MACHINE_PART_UPDATED_EVENT, makePartEvent());
+    socket.emit(MACHINE_PART_UPDATED_EVENT, { machineId: 'five' });
+    expect(options.onPartUpdated).toHaveBeenCalledTimes(1);
   });
 
   it('authenticates with the current access token on every connection', async () => {

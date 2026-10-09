@@ -1,4 +1,5 @@
 import {
+  CalendarClock,
   ChartColumn,
   ClipboardList,
   Factory,
@@ -36,6 +37,7 @@ export const NAVIGATION: readonly NavSection[] = [
       { label: 'Dashboard', href: ROUTES.dashboard, icon: LayoutDashboard, permission: Permission.VIEW_DASHBOARD, exact: true },
       { label: 'Machines', href: ROUTES.machines, icon: Factory, permission: Permission.VIEW_MACHINES },
       { label: 'Machine Logs', href: ROUTES.logs, icon: ClipboardList, permission: Permission.VIEW_LOGS },
+      { label: 'Maintenance', href: ROUTES.maintenance, icon: CalendarClock, permission: Permission.VIEW_MAINTENANCE },
       { label: 'Analytics', href: ROUTES.analytics, icon: ChartColumn, permission: Permission.VIEW_ANALYTICS },
     ],
   },

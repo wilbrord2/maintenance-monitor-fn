@@ -4,6 +4,7 @@ import { ClipboardList } from 'lucide-react';
 import Link from 'next/link';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { ErrorState } from '@/components/feedback/error-state';
+import { LogSubjectBadge } from '@/components/status/log-subject';
 import { StateTransition } from '@/components/status/state-transition';
 import { Card, CardHeader } from '@/components/ui/card';
 import { ListSkeleton } from '@/components/ui/skeleton';
@@ -38,7 +39,10 @@ export function RecentActivity() {
             <li key={log.id}>
               <Link href={ROUTES.log(log.id)} className="block px-4 py-3 hover:bg-hover">
                 <div className="flex items-baseline justify-between gap-3">
-                  <p className="truncate text-[13px] font-semibold text-ink">{log.machine.name}</p>
+                  <p className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-ink">
+                    <span className="truncate">{log.machine.name}</span>
+                    <LogSubjectBadge log={log} />
+                  </p>
                   <time dateTime={toIsoString(log.createdAt)} className="shrink-0 text-[11px] text-muted">
                     {formatRelativeTime(log.createdAt)}
                   </time>
